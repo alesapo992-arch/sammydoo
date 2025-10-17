@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <title>SammyDoo - Jump & Catch!</title>
   <style>
-    body { background:#222; color:#fff; font-family:sans-serif; text-align:center; }
-    #gameCanvas { display:block; margin:0 auto; border:2px solid #000; }
+    body { background:#222; color:#fff; font-family:sans-serif; text-align:center; margin:0; }
+    #gameCanvas { display:block; margin:0 auto; border:2px solid #000; background:#87CEEB; }
     #score, #timer { font-size:20px; margin:5px; }
     button { margin-top:15px; padding:10px; }
   </style>
@@ -19,10 +19,10 @@
 <button onclick="location.reload()">Restart</button>
 
 <script>
+// ===== Variabili di gioco =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// Variabili di gioco
 let score = 0;
 let timeLeft = 120;
 let gameOver = false;
@@ -32,17 +32,15 @@ let playerJumping = false;
 let jumpY = 0;
 let gravity = 3;
 
-// Immagini di Sam (corsa e salto)
+// ===== Immagini =====
 const dogRunImg = new Image();
-dogRunImg.src = "sam_run.png";
+dogRunImg.src = "sam_run.png";   // Cane a terra
 const dogJumpImg = new Image();
-dogJumpImg.src = "sam_jump.png";
-
-// Sfondo parco
+dogJumpImg.src = "sam_jump.png"; // Cane in salto
 const bgImg = new Image();
-bgImg.src = "park.png";
+bgImg.src = "park.png";          // Sfondo
 
-// Oggetti
+// ===== Oggetti =====
 const OBJECTS = [
   {name:"Frisbee", file:"frisbee.png", points:10},
   {name:"Ball", file:"ball.png", points:8},
@@ -56,11 +54,21 @@ OBJECTS.forEach(o => {let img=new Image(); img.src=o.file; objectImages[o.name]=
 
 let fallingItems = [];
 
-// Audio
-const catchSound = new Audio("catch.wav");
-catchSound.volume = 0.7;
+// ===== Musica di sottofondo (opzionale, parte dopo click/tasto) =====
+const bgMusic = new Audio("bg_music.mp3");
+bgMusic.loop = true;
+bgMusic.volume = 0.3;
+let musicStarted = false;
+function startMusic(){
+    if(!musicStarted){
+        bgMusic.play().catch(()=>{});
+        musicStarted = true;
+    }
+}
+document.addEventListener("click", startMusic);
+document.addEventListener("keydown", startMusic);
 
-// Classe oggetti cadenti (più lenta)
+// ===== Classe Oggetto Cadente =====
 class FallingItem {
   constructor(type){
     this.type = type;
@@ -73,12 +81,10 @@ class FallingItem {
   }
   update(){
     this.y += this.speed;
-    // Sam raccoglie SOLO se sta saltando
+    // Raccolta SOLO in salto
     if(playerJumping && this.y + this.size >= playerY && this.y < playerY + 40 &&
        this.x > playerX - 40 && this.x < playerX + 40){
         score += this.type.points;
-        catchSound.currentTime = 0;
-        catchSound.play();
         this.remove = true;
     }
     if(this.y > canvas.height) this.remove = true;
@@ -88,7 +94,7 @@ class FallingItem {
   }
 }
 
-// Spawn oggetti
+// ===== Spawning Oggetti =====
 function spawnItem(){
   if(Math.random() < 0.02 && fallingItems.length < 5){
     const type = OBJECTS[Math.floor(Math.random()*OBJECTS.length)];
@@ -96,6 +102,7 @@ function spawnItem(){
   }
 }
 
+// ===== Update =====
 function update(){
   if(playerJumping){
     jumpY += gravity;
@@ -113,27 +120,32 @@ function update(){
   if(!gameOver) spawnItem();
 }
 
+// ===== Draw =====
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  // sfondo
+
+  // Sfondo
   if(bgImg.complete) ctx.drawImage(bgImg,0,0,canvas.width,canvas.height);
-  else { ctx.fillStyle="#87CEEB"; ctx.fillRect(0,0,canvas.width,canvas.height); }
 
   // Sam animato
   if(playerJumping){
-    if(dogJumpImg.complete) ctx.drawImage(dogJumpImg, playerX - 40, playerY - 40, 80, 80);
+    if(dogJumpImg.complete){
+        ctx.drawImage(dogJumpImg, playerX - 40, playerY - 40, 80, 80);
+    }
   } else {
-    if(dogRunImg.complete) ctx.drawImage(dogRunImg, playerX - 40, playerY - 40, 80, 80);
+    if(dogRunImg.complete){
+        ctx.drawImage(dogRunImg, playerX - 40, playerY - 40, 80, 80);
+    }
   }
 
-  // Oggetti cadenti
+  // Oggetti
   fallingItems.forEach(fi => fi.draw());
 
   // UI
   document.getElementById('score').textContent = "Score: " + score;
   document.getElementById('timer').textContent = "Time: " + timeLeft + "s";
 
-  // Fine gioco
+  // Game Over
   if(gameOver){
     ctx.fillStyle="rgba(0,0,0,0.6)";
     ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -145,6 +157,7 @@ function draw(){
   }
 }
 
+// ===== Loop =====
 function gameLoop(){
   if(!gameOver){
     update();
@@ -153,7 +166,7 @@ function gameLoop(){
   }
 }
 
-// Timer
+// ===== Timer =====
 function startTimer(){
   const t = setInterval(()=>{
     if(timeLeft > 0){
@@ -163,10 +176,10 @@ function startTimer(){
       gameOver = true;
       draw();
     }
-  },1000);
+  }, 1000);
 }
 
-// Controlli
+// ===== Controlli =====
 document.addEventListener('keydown', e=>{
   if(e.key === "ArrowLeft") playerX -= 15;
   if(e.key === "ArrowRight") playerX += 15;
@@ -189,9 +202,6 @@ canvas.addEventListener('mousedown', ()=>{
 startTimer();
 gameLoop();
 </script>
-
-</body>
-</html>
 
 </body>
 </html>
