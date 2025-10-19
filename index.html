@@ -1,207 +1,424 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SammyDoo - Jump & Catch!</title>
   <style>
-    body { background:#222; color:#fff; font-family:sans-serif; text-align:center; margin:0; }
-    #gameCanvas { display:block; margin:0 auto; border:2px solid #000; background:#87CEEB; }
-    #score, #timer { font-size:20px; margin:5px; }
-    button { margin-top:15px; padding:10px; }
+    body {
+      background: #222;
+      color: #fff;
+      font-family: 'Arial', sans-serif;
+      text-align: center;
+      margin: 0;
+      overflow: hidden;
+    }
+    #gameContainer {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 10px;
+    }
+    #gameCanvas {
+      display: block;
+      margin: 0 auto;
+      border: 2px solid #000;
+      background: #87CEEB;
+      width: 100%;
+      max-width: 800px;
+      height: auto;
+      aspect-ratio: 4 / 3;
+    }
+    #ui {
+      display: flex;
+      justify-content: space-between;
+      max-width: 800px;
+      margin: 10px auto;
+      font-size: 20px;
+    }
+    #score, #timer, #highScore {
+      background: rgba(0, 0, 0, 0.7);
+      padding: 5px 10px;
+      border-radius: 5px;
+    }
+    #startScreen, #gameOverScreen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 10;
+    }
+    #gameOverScreen {
+      display: none;
+    }
+    button {
+      margin: 10px;
+      padding: 10px 20px;
+      font-size: 18px;
+      cursor: pointer;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    .hidden {
+      display: none;
+    }
+    @media (max-width: 600px) {
+      #ui {
+        font-size: 16px;
+      }
+      button {
+        font-size: 16px;
+        padding: 8px 16px;
+      }
+    }
   </style>
 </head>
 <body>
+  <div id="gameContainer">
+    <h1>🐶 SammyDoo Jump & Catch</h1>
+    <canvas id="gameCanvas"></canvas>
+    <div id="ui">
+      <div id="score">Score: 0</div>
+      <div id="timer">Time: 120s</div>
+      <div id="highScore">High Score: 0</div>
+    </div>
+    <div id="startScreen">
+      <h2>Welcome to SammyDoo!</h2>
+      <p>Use Arrow Keys or Mouse to move, Space or Click to jump.</p>
+      <p>Collect items while jumping to score points!</p>
+      <button id="startButton">Start Game</button>
+    </div>
+    <div id="gameOverScreen">
+      <h2>Game Over!</h2>
+      <p id="finalScore">Final Score: 0</p>
+      <button id="restartButton">Restart</button>
+      <button id="pauseButton">Pause</button>
+    </div>
+  </div>
 
-<h1>🐶 SammyDoo Jump & Catch</h1>
-<canvas id="gameCanvas" width="800" height="600"></canvas>
-<div id="score">Score: 0</div>
-<div id="timer">Time: 120s</div>
-<button onclick="location.reload()">Restart</button>
+  <script>
+    // ===== Game Variables =====
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    let score = 0;
+    let highScore = localStorage.getItem('sammyDooHighScore') || 0;
+    let timeLeft = 120;
+    let gameOver = false;
+    let gameStarted = false;
+    let gamePaused = false;
+    let playerX = 400;
+    let playerY = 0;
+    let playerJumping = false;
+    let jumpVelocity = -20;
+    let gravity = 0.8;
+    let animationFrame = 0;
+    let lastTime = performance.now();
 
-<script>
-// ===== Variabili di gioco =====
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+    // ===== Canvas Setup =====
+    function resizeCanvas() {
+      const maxWidth = 800;
+      const aspectRatio = 4 / 3;
+      canvas.width = Math.min(window.innerWidth - 20, maxWidth);
+      canvas.height = canvas.width / aspectRatio;
+      playerY = canvas.height - 80;
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
 
-let score = 0;
-let timeLeft = 120;
-let gameOver = false;
-let playerX = canvas.width/2;
-let playerY = canvas.height - 80;
-let playerJumping = false;
-let jumpY = 0;
-let gravity = 3;
+    // ===== Images =====
+    const assets = {
+      dogRun: ['sam_run1.png', 'sam_run2.png'], // Sprite sheet for running animation
+      dogJump: 'sam_jump.png',
+      background: 'park.png',
+      objects: [
+        { name: 'Frisbee', file: 'frisbee.png', points: 10, size: 40, speed: 2 },
+        { name: 'Ball', file: 'ball.png', points: 8, size: 30, speed: 2.5 },
+        { name: 'Stick', file: 'stick.png', points: 5, size: 50, speed: 1.8 },
+        { name: 'Football', file: 'football.png', points: 15, size: 45, speed: 2.2 },
+        { name: 'Chicken', file: 'chicken.png', points: 20, size: 40, speed: 2.8 },
+        { name: 'Rope knot', file: 'rope.png', points: 12, size: 35, speed: 2.3 }
+      ]
+    };
 
-// ===== Immagini =====
-const dogRunImg = new Image();
-dogRunImg.src = "sam_run.png";   // Cane a terra
-const dogJumpImg = new Image();
-dogJumpImg.src = "sam_jump.png"; // Cane in salto
-const bgImg = new Image();
-bgImg.src = "park.png";          // Sfondo
+    const images = {};
+    let assetsLoaded = 0;
+    const totalAssets = assets.dogRun.length + 1 + assets.objects.length + 1;
 
-// ===== Oggetti =====
-const OBJECTS = [
-  {name:"Frisbee", file:"frisbee.png", points:10},
-  {name:"Ball", file:"ball.png", points:8},
-  {name:"Stick", file:"stick.png", points:5},
-  {name:"Football", file:"football.png", points:15},
-  {name:"Chicken", file:"chicken.png", points:20},
-  {name:"Rope knot", file:"rope.png", points:12}
-];
-const objectImages = {};
-OBJECTS.forEach(o => {let img=new Image(); img.src=o.file; objectImages[o.name]=img;});
+    function loadAsset(src, key) {
+      const img = new Image();
+      img.src = src;
+      img.onload = () => {
+        images[key] = img;
+        assetsLoaded++;
+        if (assetsLoaded === totalAssets) {
+          console.log('All assets loaded');
+        }
+      };
+      img.onerror = () => console.error(`Failed to load ${src}`);
+    }
 
-let fallingItems = [];
+    assets.dogRun.forEach((src, i) => loadAsset(src, `dogRun${i}`));
+    loadAsset(assets.dogJump, 'dogJump');
+    loadAsset(assets.background, 'background');
+    assets.objects.forEach(obj => loadAsset(obj.file, obj.name));
 
-// ===== Musica di sottofondo (opzionale, parte dopo click/tasto) =====
-const bgMusic = new Audio("bg_music.mp3");
-bgMusic.loop = true;
-bgMusic.volume = 0.3;
-let musicStarted = false;
-function startMusic(){
-    if(!musicStarted){
-        bgMusic.play().catch(()=>{});
+    // ===== Audio =====
+    const sounds = {
+      bgMusic: new Audio('bg_music.mp3'),
+      collect: new Audio('collect.wav'),
+      gameOver: new Audio('game_over.wav')
+    };
+    sounds.bgMusic.loop = true;
+    sounds.bgMusic.volume = 0.3;
+    sounds.collect.volume = 0.5;
+    sounds.gameOver.volume = 0.5;
+
+    let musicStarted = false;
+    function startMusic() {
+      if (!musicStarted && !gamePaused) {
+        sounds.bgMusic.play().catch(() => {});
         musicStarted = true;
+      }
     }
-}
-document.addEventListener("click", startMusic);
-document.addEventListener("keydown", startMusic);
+    document.addEventListener('click', startMusic);
+    document.addEventListener('keydown', startMusic);
 
-// ===== Classe Oggetto Cadente =====
-class FallingItem {
-  constructor(type){
-    this.type = type;
-    this.img = objectImages[type.name];
-    this.x = Math.random() * (canvas.width - 40) + 20;
-    this.y = 0;
-    this.size = 40;
-    this.speed = 1 + Math.random()*0.5; // più lento
-    this.remove = false;
-  }
-  update(){
-    this.y += this.speed;
-    // Raccolta SOLO in salto
-    if(playerJumping && this.y + this.size >= playerY && this.y < playerY + 40 &&
-       this.x > playerX - 40 && this.x < playerX + 40){
-        score += this.type.points;
-        this.remove = true;
+    // ===== Falling Item Class =====
+    class FallingItem {
+      constructor(type) {
+        this.type = type;
+        this.img = images[type.name];
+        this.x = Math.random() * (canvas.width - type.size) + type.size / 2;
+        this.y = -type.size;
+        this.size = type.size;
+        this.speed = type.speed + Math.random() * 0.5;
+        this.remove = false;
+      }
+      update() {
+        this.y += this.speed;
+        if (playerJumping && Math.abs(this.y - playerY) < this.size &&
+            Math.abs(this.x - playerX) < (this.size + 40) / 2) {
+          score += this.type.points;
+          sounds.collect.play().catch(() => {});
+          this.remove = true;
+        }
+        if (this.y > canvas.height) this.remove = true;
+      }
+      draw() {
+        if (this.img) {
+          ctx.drawImage(this.img, this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
+        }
+      }
     }
-    if(this.y > canvas.height) this.remove = true;
-  }
-  draw(){
-    if(this.img.complete) ctx.drawImage(this.img, this.x - this.size/2, this.y, this.size, this.size);
-  }
-}
 
-// ===== Spawning Oggetti =====
-function spawnItem(){
-  if(Math.random() < 0.02 && fallingItems.length < 5){
-    const type = OBJECTS[Math.floor(Math.random()*OBJECTS.length)];
-    fallingItems.push(new FallingItem(type));
-  }
-}
+    let fallingItems = [];
 
-// ===== Update =====
-function update(){
-  if(playerJumping){
-    jumpY += gravity;
-    playerY -= 15;
-    if(jumpY > 20) playerJumping = false;
-  } else {
-    if(playerY < canvas.height - 80) playerY += gravity;
-    else playerY = canvas.height - 80;
-    jumpY = 0;
-  }
-
-  fallingItems.forEach(fi => fi.update());
-  fallingItems = fallingItems.filter(fi => !fi.remove);
-
-  if(!gameOver) spawnItem();
-}
-
-// ===== Draw =====
-function draw(){
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-
-  // Sfondo
-  if(bgImg.complete) ctx.drawImage(bgImg,0,0,canvas.width,canvas.height);
-
-  // Sam animato
-  if(playerJumping){
-    if(dogJumpImg.complete){
-        ctx.drawImage(dogJumpImg, playerX - 40, playerY - 40, 80, 80);
+    // ===== Spawning Items =====
+    function spawnItem() {
+      if (Math.random() < 0.03 && fallingItems.length < 6) {
+        const type = assets.objects[Math.floor(Math.random() * assets.objects.length)];
+        fallingItems.push(new FallingItem(type));
+      }
     }
-  } else {
-    if(dogRunImg.complete){
-        ctx.drawImage(dogRunImg, playerX - 40, playerY - 40, 80, 80);
+
+    // ===== Update Game State =====
+    function update(delta) {
+      if (gamePaused || !gameStarted || gameOver) return;
+
+      // Player movement
+      if (playerJumping) {
+        playerY += jumpVelocity;
+        jumpVelocity += gravity;
+        if (playerY >= canvas.height - 80) {
+          playerY = canvas.height - 80;
+          playerJumping = false;
+          jumpVelocity = -20;
+        }
+      }
+
+      // Update falling items
+      fallingItems.forEach(item => item.update());
+      fallingItems = fallingItems.filter(item => !item.remove);
+
+      // Spawn new items
+      spawnItem();
+
+      // Update animation frame
+      animationFrame = (animationFrame + delta * 0.01) % 2;
     }
-  }
 
-  // Oggetti
-  fallingItems.forEach(fi => fi.draw());
+    // ===== Draw Game =====
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // UI
-  document.getElementById('score').textContent = "Score: " + score;
-  document.getElementById('timer').textContent = "Time: " + timeLeft + "s";
+      // Background
+      if (images.background) {
+        ctx.drawImage(images.background, 0, 0, canvas.width, canvas.height);
+      }
 
-  // Game Over
-  if(gameOver){
-    ctx.fillStyle="rgba(0,0,0,0.6)";
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle="white";
-    ctx.font="bold 36px Arial";
-    ctx.textAlign="center";
-    ctx.fillText("GAME OVER!", canvas.width/2, canvas.height/2);
-    ctx.fillText("Final Score: " + score, canvas.width/2, canvas.height/2 + 50);
-  }
-}
+      // Player
+      if (playerJumping && images.dogJump) {
+        ctx.drawImage(images.dogJump, playerX - 40, playerY - 40, 80, 80);
+      } else if (images[`dogRun${Math.floor(animationFrame)}`]) {
+        ctx.drawImage(images[`dogRun${Math.floor(animationFrame)}`], playerX - 40, playerY - 40, 80, 80);
+      }
 
-// ===== Loop =====
-function gameLoop(){
-  if(!gameOver){
-    update();
-    draw();
-    requestAnimationFrame(gameLoop);
-  }
-}
+      // Falling items
+      fallingItems.forEach(item => item.draw());
 
-// ===== Timer =====
-function startTimer(){
-  const t = setInterval(()=>{
-    if(timeLeft > 0){
-      timeLeft--;
-    } else {
-      clearInterval(t);
-      gameOver = true;
+      // Update UI
+      document.getElementById('score').textContent = `Score: ${score}`;
+      document.getElementById('timer').textContent = `Time: ${timeLeft}s`;
+      document.getElementById('highScore').textContent = `High Score: ${highScore}`;
+
+      // Game Over
+      if (gameOver) {
+        document.getElementById('gameOverScreen').style.display = 'flex';
+        document.getElementById('finalScore').textContent = `Final Score: ${score}`;
+        sounds.bgMusic.pause();
+        sounds.gameOver.play().catch(() => {});
+      }
+    }
+
+    // ===== Game Loop =====
+    function gameLoop(timestamp) {
+      if (!gameStarted || gamePaused) {
+        requestAnimationFrame(gameLoop);
+        return;
+      }
+      const delta = timestamp - lastTime;
+      lastTime = timestamp;
+      update(delta);
       draw();
+      requestAnimationFrame(gameLoop);
     }
-  }, 1000);
-}
 
-// ===== Controlli =====
-document.addEventListener('keydown', e=>{
-  if(e.key === "ArrowLeft") playerX -= 15;
-  if(e.key === "ArrowRight") playerX += 15;
-  if(e.key === " " && !playerJumping){
-    playerJumping = true;
-    jumpY = 0;
-  }
-});
-canvas.addEventListener('mousemove', e=>{
-  const rect = canvas.getBoundingClientRect();
-  playerX = e.clientX - rect.left;
-});
-canvas.addEventListener('mousedown', ()=>{
-  if(!playerJumping){
-    playerJumping = true;
-    jumpY = 0;
-  }
-});
+    // ===== Timer =====
+    function startTimer() {
+      const timer = setInterval(() => {
+        if (gamePaused || !gameStarted) return;
+        if (timeLeft > 0) {
+          timeLeft--;
+        } else {
+          clearInterval(timer);
+          gameOver = true;
+          if (score > highScore) {
+            highScore = score;
+            localStorage.setItem('sammyDooHighScore', highScore);
+          }
+        }
+      }, 1000);
+    }
 
-startTimer();
-gameLoop();
-</script>
+    // ===== Controls =====
+    let keys = { ArrowLeft: false, ArrowRight: false };
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft') keys.ArrowLeft = true;
+      if (e.key === 'ArrowRight') keys.ArrowRight = true;
+      if (e.key === ' ' && !playerJumping && gameStarted && !gamePaused) {
+        playerJumping = true;
+        jumpVelocity = -20;
+      }
+      if (e.key === 'p') togglePause();
+    });
+    document.addEventListener('keyup', e => {
+      if (e.key === 'ArrowLeft') keys.ArrowLeft = false;
+      if (e.key === 'ArrowRight') keys.ArrowRight = false;
+    });
 
+    // Mouse controls
+    canvas.addEventListener('mousemove', e => {
+      if (!gameStarted || gamePaused) return;
+      const rect = canvas.getBoundingClientRect();
+      playerX = e.clientX - rect.left;
+      playerX = Math.max(40, Math.min(canvas.width - 40, playerX));
+    });
+    canvas.addEventListener('mousedown', () => {
+      if (!gameStarted || gamePaused) return;
+      if (!playerJumping) {
+        playerJumping = true;
+        jumpVelocity = -20;
+      }
+    });
+
+    // Touch controls
+    let touchStartX = 0;
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      if (!gameStarted || gamePaused) return;
+      touchStartX = e.touches[0].clientX;
+      if (!playerJumping) {
+        playerJumping = true;
+        jumpVelocity = -20;
+      }
+    });
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (!gameStarted || gamePaused) return;
+      const rect = canvas.getBoundingClientRect();
+      playerX = e.touches[0].clientX - rect.left;
+      playerX = Math.max(40, Math.min(canvas.width - 40, playerX));
+    });
+
+    // Update player movement based on keys
+    function updatePlayerMovement() {
+      if (!gameStarted || gamePaused) return;
+      if (keys.ArrowLeft) playerX -= 5;
+      if (keys.ArrowRight) playerX += 5;
+      playerX = Math.max(40, Math.min(canvas.width - 40, playerX));
+    }
+    setInterval(updatePlayerMovement, 16);
+
+    // ===== Start/Restart/Pause =====
+    function startGame() {
+      document.getElementById('startScreen').classList.add('hidden');
+      gameStarted = true;
+      gameOver = false;
+      gamePaused = false;
+      score = 0;
+      timeLeft = 120;
+      fallingItems = [];
+      playerX = canvas.width / 2;
+      playerY = canvas.height - 80;
+      playerJumping = false;
+      jumpVelocity = -20;
+      startTimer();
+      startMusic();
+    }
+
+    function togglePause() {
+      if (!gameStarted || gameOver) return;
+      gamePaused = !gamePaused;
+      document.getElementById('pauseButton').textContent = gamePaused ? 'Resume' : 'Pause';
+      if (gamePaused) {
+        sounds.bgMusic.pause();
+      } else {
+        startMusic();
+      }
+    }
+
+    document.getElementById('startButton').addEventListener('click', startGame);
+    document.getElementById('restartButton').addEventListener('click', () => {
+      document.getElementById('gameOverScreen').style.display = 'none';
+      sounds.bgMusic.currentTime = 0;
+      startGame();
+    });
+    document.getElementById('pauseButton').addEventListener('click', togglePause);
+
+    // ===== Initialize =====
+    document.getElementById('highScore').textContent = `High Score: ${highScore}`;
+    requestAnimationFrame(gameLoop);
+  </script>
 </body>
 </html>
