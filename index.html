@@ -102,6 +102,9 @@ let jumping = false;
 const GRAVITY = 2600;
 const JUMP = -850;
 
+/* direzione */
+let facingRight = true;
+
 /* jump forgiveness */
 let coyoteTime = 0.12;
 let jumpBuffer = 0;
@@ -127,8 +130,13 @@ addEventListener('keyup',e=>{
 canvas.addEventListener('touchstart',e=>{
   e.preventDefault();
   const x = e.touches[0].clientX;
-  if(x < innerWidth/2) left=true;
-  else right=true;
+  if(x < innerWidth/2){
+    left=true;
+    facingRight = false;
+  } else {
+    right=true;
+    facingRight = true;
+  }
   jumpBuffer = JBUF;
   if(!jumping) coyoteTime = COYOTE;
 },{passive:false});
@@ -154,7 +162,6 @@ const OBJECTS = [
   {img:img('frisbee.png'), pts:10, size:40, speed:220},
   {img:img('ball.png'), pts:8, size:30, speed:250},
   {img:img('stick.png'), pts:5, size:45, speed:200},
-
   {img:img('star.png'), special:'x2', size:40, speed:240, chance:0.15},
   {img:img('bone.png'), special:'time', size:40, speed:240, chance:0.15}
 ];
@@ -203,8 +210,14 @@ function update(dt){
   spawnRate += dt * 0.008;
   spawnRate = Math.min(spawnRate, 2.2);
 
-  if(left) px -= 400*dt;
-  if(right) px += 400*dt;
+  if(left){
+    px -= 400*dt;
+    facingRight = false;
+  }
+  if(right){
+    px += 400*dt;
+    facingRight = true;
+  }
   px = Math.max(PW/2,Math.min(canvas.width-PW/2,px));
 
   if(!jumping) coyoteTime -= dt;
@@ -278,15 +291,23 @@ function draw(){
   ctx.drawImage(IMG.bg,0,0,canvas.width,canvas.height);
 
   let pImg;
-  if(jumping) {
+  if(jumping){
     pImg = IMG.jump;
-  } else if(left || right) {
+  } else if(left || right){
     pImg = IMG.run[Math.floor(anim)%2];
   } else {
     pImg = IMG.run[0];
   }
 
-  ctx.drawImage(pImg,px-PW/2,py,PW,PH);
+  ctx.save();
+  if(!facingRight){
+    ctx.translate(px,0);
+    ctx.scale(-1,1);
+    ctx.drawImage(pImg,-PW/2,py,PW,PH);
+  } else {
+    ctx.drawImage(pImg,px-PW/2,py,PW,PH);
+  }
+  ctx.restore();
 
   items.forEach(o=>{
     ctx.drawImage(o.t.img,
