@@ -1,3 +1,5 @@
+html
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -132,6 +134,7 @@
     let animFPS = 10; // frames per second for running animation
     let lastTime = performance.now();
     let spawnProbPerSecond = 1.8; // approximate spawns per second
+    let timerInterval;
 
     // ===== Canvas Setup =====
     function resizeCanvas() {
@@ -147,7 +150,7 @@
 
     // ===== Images =====
     const assets = {
-      dogRun: ['sam_run1.png', 'sam_run2.png'], // Sprite sheet for running animation
+      dogRun: ['sam_run1.png', 'sam_run2.png'],
       dogJump: 'sam_jump.png',
       background: 'park.png',
       objects: [
@@ -209,21 +212,27 @@
         this.type = type;
         this.img = images[type.name];
         this.x = Math.random() * (canvas.width - type.size) + type.size / 2;
-        this.y = -type.size;
+        this.y = -type.size / 2;
         this.size = type.size;
         this.speed = type.speed + Math.random() * 50;
         this.remove = false;
       }
       update(dt) {
         this.y += this.speed * dt;
-        const playerCenterY = playerY + playerHeight / 2 - 40; // Adjust based on draw offset
-        if (Math.abs(this.y - playerCenterY) < (this.size / 2 + playerHeight / 2) &&
-            Math.abs(this.x - playerX) < (this.size / 2 + playerWidth / 2)) {
-          score += this.type.points;
-          sounds.collect.play().catch(() => {});
-          this.remove = true;
+        if (this.y > canvas.height + this.size / 2) this.remove = true;
+        if (playerJumping) {
+          const playerCenterY = playerY + playerHeight / 2;
+          const halfItem = this.size / 2;
+          const halfPlayerW = playerWidth / 2;
+          const halfPlayerH = playerHeight / 2;
+          if (Math.abs(this.y - playerCenterY) < halfItem + halfPlayerH &&
+              Math.abs(this.x - playerX) < halfItem + halfPlayerW) {
+            score += this.type.points;
+            document.getElementById('score').textContent = `Score: ${score}`;
+            sounds.collect.play().catch(() => {});
+            this.remove = true;
+          }
         }
-        if (this.y > canvas.height + this.size) this.remove = true;
       }
       draw() {
         if (this.img) {
@@ -250,12 +259,14 @@
       if (keys.ArrowRight) playerX += playerMoveSpeed * dt;
       playerX = Math.max(playerWidth / 2, Math.min(canvas.width - playerWidth / 2, playerX));
 
+      // Player jumping
       if (playerJumping) {
-        playerY += jumpVelocity * dt;
         jumpVelocity += gravity * dt;
+        playerY += jumpVelocity * dt;
         if (playerY >= canvas.height - playerHeight) {
           playerY = canvas.height - playerHeight;
           playerJumping = false;
+          jumpVelocity = 0;
         }
       }
 
@@ -291,11 +302,6 @@
 
       // Falling items
       fallingItems.forEach(item => item.draw());
-
-      // Update UI
-      document.getElementById('score').textContent = `Score: ${score}`;
-      document.getElementById('timer').textContent = `Time: ${timeLeft}s`;
-      document.getElementById('highScore').textContent = `High Score: ${highScore}`;
     }
 
     // ===== Game Loop =====
@@ -317,18 +323,20 @@
     }
 
     // ===== Timer =====
-    let timerInterval;
     function startTimer() {
+      document.getElementById('timer').textContent = `Time: ${timeLeft}s`;
       timerInterval = setInterval(() => {
-        if (gamePaused || !gameStarted) return;
+        if (gamePaused || !gameStarted || gameOver) return;
         if (timeLeft > 0) {
           timeLeft--;
+          document.getElementById('timer').textContent = `Time: ${timeLeft}s`;
         } else {
           clearInterval(timerInterval);
           gameOver = true;
           if (score > highScore) {
             highScore = score;
             localStorage.setItem('sammyDooHighScore', highScore);
+            document.getElementById('highScore').textContent = `High Score: ${highScore}`;
           }
           document.getElementById('gameOverScreen').style.display = 'flex';
           document.getElementById('finalScore').textContent = `Final Score: ${score}`;
@@ -339,13 +347,13 @@
     }
 
     // ===== Controls =====
-    let keys = { ArrowLeft: false, ArrowRight: false };
+    const keys = { ArrowLeft: false, ArrowRight: false };
     document.addEventListener('keydown', e => {
       if (e.key === 'ArrowLeft') keys.ArrowLeft = true;
       if (e.key === 'ArrowRight') keys.ArrowRight = true;
       if (e.key === ' ' && !playerJumping && gameStarted && !gamePaused) {
         playerJumping = true;
-        jumpVelocity = -1200; // px/s (adjusted for delta time)
+        jumpVelocity = -1200; // px/s
       }
       if (e.key.toLowerCase() === 'p' && gameStarted && !gameOver) {
         togglePause();
@@ -391,6 +399,7 @@
         return;
       }
       document.getElementById('startScreen').classList.add('hidden');
+      document.getElementById('score').textContent = `Score: ${score}`;
       gameStarted = true;
       gameOver = false;
       gamePaused = false;
@@ -433,4 +442,5 @@
   </script>
 </body>
 </html>
+
 
