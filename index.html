@@ -1,305 +1,333 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="it">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SammyDoo - Jump & Catch!</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>SammyDoo – Jump & Catch</title>
 
 <style>
 body {
-  background: #222;
-  color: #fff;
-  font-family: Arial, sans-serif;
   margin: 0;
-  text-align: center;
-  overflow: hidden;
+  background:#111;
+  color:#fff;
+  font-family:Arial,sans-serif;
+  text-align:center;
+  overflow:hidden;
+  overscroll-behavior:none;
 }
 
+h1 { margin:10px 0; }
+
 #gameContainer {
-  max-width: 800px;
-  margin: auto;
-  position: relative;
+  max-width:800px;
+  margin:auto;
+  position:relative;
 }
 
 canvas {
-  background: #87CEEB;
-  width: 100%;
-  aspect-ratio: 4 / 3;
+  width:100%;
+  aspect-ratio:4/3;
+  background:#87CEEB;
+  touch-action:none;
+  user-select:none;
+  -webkit-user-select:none;
 }
 
 #ui {
-  display: flex;
-  justify-content: space-between;
-  padding: 5px;
-  font-size: 18px;
+  display:flex;
+  justify-content:space-between;
+  padding:6px;
 }
 
 .badge {
-  background: rgba(0,0,0,0.6);
-  padding: 6px 10px;
-  border-radius: 6px;
+  background:rgba(0,0,0,0.6);
+  padding:6px 10px;
+  border-radius:6px;
+  font-size:16px;
 }
 
-.floatingText {
-  position: absolute;
-  pointer-events: none;
-  color: yellow;
-  font-weight: bold;
-  animation: floatUp 1s forwards;
+.floating {
+  position:absolute;
+  color:yellow;
+  font-weight:bold;
+  animation:fly 1s forwards;
+  pointer-events:none;
 }
 
-@keyframes floatUp {
-  from { opacity:1; transform: translateY(0); }
-  to { opacity:0; transform: translateY(-40px); }
+@keyframes fly {
+  from {opacity:1; transform:translateY(0);}
+  to {opacity:0; transform:translateY(-40px);}
 }
 </style>
 </head>
 
 <body>
 <div id="gameContainer">
-<h1>🐶 SammyDoo Jump & Catch</h1>
-<canvas id="gameCanvas"></canvas>
-
-<div id="ui">
-  <div id="score" class="badge">Score: 0</div>
-  <div id="timer" class="badge">Time: 120</div>
-  <div id="highScore" class="badge">High Score: 0</div>
-</div>
+  <h1>🐶 SammyDoo Jump & Catch</h1>
+  <canvas id="gameCanvas"></canvas>
+  <div id="ui">
+    <div id="score" class="badge">Score: 0</div>
+    <div id="timer" class="badge">Time: 120</div>
+    <div id="high" class="badge">High: 0</div>
+  </div>
 </div>
 
 <script>
 /* =====================================================
-   BASIC SETUP
+   CANVAS
 ===================================================== */
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-function resize() {
-  canvas.width = Math.min(window.innerWidth, 800);
+function resize(){
+  canvas.width = Math.min(window.innerWidth,800);
   canvas.height = canvas.width * 0.75;
 }
 resize();
-window.addEventListener('resize', resize);
+window.addEventListener('resize',resize);
 
 /* =====================================================
    GAME STATE
 ===================================================== */
 let score = 0;
-let highScore = +localStorage.getItem('sammyHigh') || 0;
 let timeLeft = 120;
+let highScore = +localStorage.getItem('sammyHigh') || 0;
 let lastTime = performance.now();
-let shakeTime = 0;
+let shake = 0;
 
 /* =====================================================
    PLAYER
 ===================================================== */
-const playerW = 80;
-const playerH = 80;
-let playerX = canvas.width / 2;
-let playerY = canvas.height - playerH;
+const PW = 80, PH = 80;
+let px = canvas.width/2;
+let py = canvas.height - PH;
+let vy = 0;
+let jumping = false;
 
-let jumpVelocity = 0;
-let playerJumping = false;
+const GRAVITY = 2400;
+const JUMP = -1200;
 
-const gravity = 2400;
-const jumpPower = -1200;
-
-// jump forgiveness
-let coyoteTime = 0;
+/* jump forgiveness */
+let coyoteTime = 0.12;
 let jumpBuffer = 0;
 const COYOTE = 0.12;
-const JUMP_BUFFER = 0.15;
+const JBUF = 0.15;
 
 /* =====================================================
    INPUT
 ===================================================== */
-const keys = { left:false, right:false };
-let touchLeft = false;
-let touchRight = false;
+let left = false;
+let right = false;
 
-// keyboard
-document.addEventListener('keydown', e => {
-  if (e.key === 'ArrowLeft') keys.left = true;
-  if (e.key === 'ArrowRight') keys.right = true;
-  if (e.code === 'Space') jumpBuffer = JUMP_BUFFER;
+/* keyboard */
+addEventListener('keydown',e=>{
+  if(e.key==='ArrowLeft') left=true;
+  if(e.key==='ArrowRight') right=true;
+  if(e.code==='Space') jumpBuffer=JBUF;
 });
-document.addEventListener('keyup', e => {
-  if (e.key === 'ArrowLeft') keys.left = false;
-  if (e.key === 'ArrowRight') keys.right = false;
+addEventListener('keyup',e=>{
+  if(e.key==='ArrowLeft') left=false;
+  if(e.key==='ArrowRight') right=false;
 });
 
-// simplified touch (canvas)
-canvas.addEventListener('touchstart', e => {
+/* touch mobile */
+canvas.addEventListener('touchstart',e=>{
+  e.preventDefault();
   const x = e.touches[0].clientX;
-  if (x < window.innerWidth / 2) touchLeft = true;
-  else touchRight = true;
-  jumpBuffer = JUMP_BUFFER;
-});
-canvas.addEventListener('touchend', () => {
-  touchLeft = false;
-  touchRight = false;
-});
+  if(x < innerWidth/2) left=true;
+  else right=true;
+  jumpBuffer = JBUF;
+  if(!jumping) coyoteTime = COYOTE;
+},{passive:false});
+
+canvas.addEventListener('touchend',()=>{
+  left=false; right=false;
+},{passive:false});
+
+canvas.addEventListener('touchmove',e=>{
+  e.preventDefault();
+},{passive:false});
 
 /* =====================================================
    IMAGES
 ===================================================== */
-const images = {};
-function load(src) {
-  const i = new Image();
-  i.src = src;
-  return i;
-}
+function img(src){ const i=new Image(); i.src=src; return i; }
 
-images.bg = load('park.png');
-images.run1 = load('sam_run1.png');
-images.run2 = load('sam_run2.png');
-images.jump = load('sam_jump.png');
+const IMG = {
+  bg:img('park.png'),
+  run:[img('sam_run1.png'),img('sam_run2.png')],
+  jump:img('sam_jump.png')
+};
 
-const objectTypes = [
-  {name:'Frisbee', img:load('frisbee.png'), pts:10, size:40, speed:220},
-  {name:'Ball', img:load('ball.png'), pts:8, size:30, speed:250},
-  {name:'Stick', img:load('stick.png'), pts:5, size:45, speed:200},
-  {name:'Star', img:load('star.png'), special:'x2', size:40, speed:240},
-  {name:'Bone', img:load('bone.png'), special:'time', size:40, speed:240}
+const OBJECTS = [
+  {img:img('frisbee.png'), pts:10, size:40, speed:220},
+  {img:img('ball.png'), pts:8, size:30, speed:250},
+  {img:img('stick.png'), pts:5, size:45, speed:200},
+  {img:img('star.png'), special:'x2', size:40, speed:240},
+  {img:img('bone.png'), special:'time', size:40, speed:240}
 ];
 
 /* =====================================================
-   ITEMS
+   AUDIO (mobile safe)
 ===================================================== */
-let items = [];
-let spawnRate = 1.8;
+const sounds = {
+  bg:new Audio('bg_music.mp3'),
+  collect:new Audio('collect.wav'),
+  power:new Audio('power.wav')
+};
+sounds.bg.loop=true;
+sounds.bg.volume=0.3;
 
-/* power up */
-let multiplier = 1;
-let multiplierTimer = 0;
+let audioUnlocked=false;
+function unlockAudio(){
+  if(audioUnlocked) return;
+  audioUnlocked=true;
+  sounds.bg.play().catch(()=>{});
+}
+addEventListener('touchstart',unlockAudio,{once:true});
+addEventListener('mousedown',unlockAudio,{once:true});
 
 /* =====================================================
-   UTILS
+   ITEMS & POWERUP
 ===================================================== */
-function floatingText(text, x, y) {
-  const el = document.createElement('div');
-  el.className = 'floatingText';
-  el.style.left = x + 'px';
-  el.style.top = y + 'px';
-  el.textContent = text;
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 1000);
+let items=[];
+let spawnRate=1.8;
+let mult=1;
+let multTime=0;
+
+function floatText(txt,x,y){
+  const d=document.createElement('div');
+  d.className='floating';
+  d.textContent=txt;
+  d.style.left=(canvas.offsetLeft+x)+'px';
+  d.style.top=(canvas.offsetTop+y)+'px';
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(),1000);
 }
 
 /* =====================================================
-   GAME LOOP
+   UPDATE
 ===================================================== */
-function update(dt) {
+let anim=0;
 
-  spawnRate += dt * 0.02;
+function update(dt){
+  spawnRate += dt*0.02;
 
-  // movement
-  if (keys.left || touchLeft) playerX -= 400 * dt;
-  if (keys.right || touchRight) playerX += 400 * dt;
-  playerX = Math.max(playerW/2, Math.min(canvas.width-playerW/2, playerX));
+  /* movement */
+  if(left) px -= 400*dt;
+  if(right) px += 400*dt;
+  px = Math.max(PW/2,Math.min(canvas.width-PW/2,px));
 
-  // jump
-  if (!playerJumping) coyoteTime -= dt;
-  if (jumpBuffer > 0 && coyoteTime > 0 && !playerJumping) {
-    playerJumping = true;
-    jumpVelocity = jumpPower;
-    jumpBuffer = 0;
-    coyoteTime = 0;
+  /* jumping */
+  if(!jumping) coyoteTime -= dt;
+  if(jumpBuffer>0 && coyoteTime>0 && !jumping){
+    jumping=true;
+    vy=JUMP;
+    jumpBuffer=0;
+    coyoteTime=0;
   }
 
-  if (playerJumping) {
-    jumpVelocity += gravity * dt;
-    playerY += jumpVelocity * dt;
-    if (playerY >= canvas.height - playerH) {
-      playerY = canvas.height - playerH;
-      playerJumping = false;
-      jumpVelocity = 0;
-      coyoteTime = COYOTE;
+  if(jumping){
+    vy += GRAVITY*dt;
+    py += vy*dt;
+    if(py >= canvas.height-PH){
+      py = canvas.height-PH;
+      vy = 0;
+      jumping=false;
+      coyoteTime=COYOTE;
     }
   }
+  if(jumpBuffer>0) jumpBuffer-=dt;
 
-  if (jumpBuffer > 0) jumpBuffer -= dt;
-
-  // items spawn
-  if (Math.random() < spawnRate * dt && items.length < 6) {
-    const t = objectTypes[Math.floor(Math.random()*objectTypes.length)];
-    items.push({t, x:Math.random()*(canvas.width-40)+20, y:-40});
+  /* items */
+  if(Math.random()<spawnRate*dt && items.length<6){
+    const t=OBJECTS[Math.floor(Math.random()*OBJECTS.length)];
+    items.push({t,x:Math.random()*(canvas.width-40)+20,y:-40});
   }
 
-  items.forEach(o => {
-    o.y += (o.t.speed + spawnRate*10) * dt;
-
-    if (Math.abs(o.x-playerX)<50 && Math.abs(o.y-(playerY+40))<50 && playerJumping) {
-      if (o.t.special === 'x2') {
-        multiplier = 2;
-        multiplierTimer = 5;
-        floatingText('x2!', o.x, o.y);
-      } else if (o.t.special === 'time') {
-        timeLeft += 5;
-        floatingText('+5s', o.x, o.y);
-      } else {
-        score += o.t.pts * multiplier;
-        floatingText('+'+(o.t.pts*multiplier), o.x, o.y);
+  items.forEach(o=>{
+    o.y += (o.t.speed + spawnRate*12)*dt;
+    if(Math.abs(o.x-px)<45 && Math.abs(o.y-(py+40))<45 && jumping){
+      if(o.t.special==='x2'){
+        mult=2; multTime=5;
+        floatText('x2!',o.x,o.y);
+        sounds.power.play().catch(()=>{});
+      }else if(o.t.special==='time'){
+        timeLeft+=5;
+        floatText('+5s',o.x,o.y);
+        sounds.power.play().catch(()=>{});
+      }else{
+        score += o.t.pts*mult;
+        floatText('+'+(o.t.pts*mult),o.x,o.y);
+        sounds.collect.play().catch(()=>{});
       }
-      shakeTime = 0.15;
-      o.dead = true;
+      shake=0.15;
+      o.dead=true;
     }
   });
+  items=items.filter(o=>!o.dead && o.y<canvas.height+60);
 
-  items = items.filter(o => !o.dead && o.y < canvas.height+50);
-
-  if (multiplierTimer > 0) {
-    multiplierTimer -= dt;
-    if (multiplierTimer <= 0) multiplier = 1;
+  if(multTime>0){
+    multTime-=dt;
+    if(multTime<=0) mult=1;
   }
+
+  anim+=dt*10;
 }
 
-function draw() {
+/* =====================================================
+   DRAW
+===================================================== */
+function draw(){
   ctx.save();
-  if (shakeTime > 0) {
-    ctx.translate(Math.random()*6-3, Math.random()*6-3);
-    shakeTime -= 0.016;
+  if(shake>0){
+    ctx.translate(Math.random()*6-3,Math.random()*6-3);
+    shake-=0.016;
   }
 
-  ctx.drawImage(images.bg, 0, 0, canvas.width, canvas.height);
+  ctx.drawImage(IMG.bg,0,0,canvas.width,canvas.height);
 
-  // player
-  const img = playerJumping ? images.jump : images.run1;
-  ctx.drawImage(img, playerX-playerW/2, playerY, playerW, playerH);
+  const f = Math.floor(anim)%2;
+  const pImg = jumping ? IMG.jump : IMG.run[f];
+  ctx.drawImage(pImg,px-PW/2,py,PW,PH);
 
-  // items
-  items.forEach(o => ctx.drawImage(o.t.img, o.x-20, o.y-20, 40, 40));
+  items.forEach(o=>{
+    ctx.drawImage(o.t.img,o.x-o.t.size/2,o.y-o.t.size/2,o.t.size,o.t.size);
+  });
 
   ctx.restore();
 }
 
-function loop(t) {
-  const dt = Math.min((t-lastTime)/1000,0.05);
-  lastTime = t;
-
-  update(dt);
-  draw();
-
-  document.getElementById('score').textContent = 'Score: ' + score;
-  document.getElementById('timer').textContent = 'Time: ' + timeLeft;
-  document.getElementById('highScore').textContent = 'High Score: ' + highScore;
-
-  requestAnimationFrame(loop);
-}
-
+/* =====================================================
+   LOOP & TIMER
+===================================================== */
 setInterval(()=>{
   timeLeft--;
-  if (timeLeft <= 0) {
-    if (score > highScore) {
-      highScore = score;
-      localStorage.setItem('sammyHigh', highScore);
+  if(timeLeft<=0){
+    if(score>highScore){
+      highScore=score;
+      localStorage.setItem('sammyHigh',highScore);
     }
     location.reload();
   }
 },1000);
 
+function loop(t){
+  const dt=Math.min((t-lastTime)/1000,0.05);
+  lastTime=t;
+  update(dt);
+  draw();
+  scoreEl.textContent='Score: '+score;
+  timerEl.textContent='Time: '+timeLeft;
+  highEl.textContent='High: '+highScore;
+  requestAnimationFrame(loop);
+}
+
+const scoreEl=document.getElementById('score');
+const timerEl=document.getElementById('timer');
+const highEl=document.getElementById('high');
+
 requestAnimationFrame(loop);
 </script>
 </body>
 </html>
-
