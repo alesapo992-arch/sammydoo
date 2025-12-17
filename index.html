@@ -159,39 +159,49 @@ addEventListener("keyup",e=>{
 });
 
 /* ======== TOUCH SWIPE CONTROLS ======== */
-let touchSX=0, touchSY=0;
-const SWIPE_THRESHOLD=30;
+let touchStartX = 0;
+let touchStartY = 0;
+const SWIPE_THRESHOLD = 35; // sensibilità swipe
 
-canvas.addEventListener("touchstart",e=>{
+canvas.addEventListener("touchstart", e => {
   e.preventDefault();
-  const t=e.touches[0];
-  touchSX=t.clientX;
-  touchSY=t.clientY;
-},{passive:false});
+  const t = e.touches[0];
+  touchStartX = t.clientX;
+  touchStartY = t.clientY;
+}, { passive:false });
 
-canvas.addEventListener("touchend",e=>{
+canvas.addEventListener("touchend", e => {
   e.preventDefault();
-  const t=e.changedTouches[0];
-  const dx=t.clientX-touchSX;
-  const dy=t.clientY-touchSY;
+  const t = e.changedTouches[0];
 
-  // swipe su = salto
-  if(dy < -SWIPE_THRESHOLD && Math.abs(dy) > Math.abs(dx)){
-    jumpBuffer=0.15;
-    if(!jumping) coyoteTime=0.12;
+  const dx = t.clientX - touchStartX;
+  const dy = t.clientY - touchStartY;
+
+  // 🔼 SWIPE UP / diagonale = SALTO
+  if (dy < -SWIPE_THRESHOLD && Math.abs(dy) > Math.abs(dx)) {
+    jumpBuffer = 0.15;
+    if (!jumping) coyoteTime = 0.12;
     return;
   }
 
-  // tap laterale
-  if(Math.abs(dx) > Math.abs(dy)){
-    if(dx < 0){
-      left=true; facingRight=false;
-    } else {
-      right=true; facingRight=true;
-    }
-    setTimeout(()=>{left=false; right=false},120);
+  // ◀️ SWIPE LEFT = SINISTRA
+  if (dx < -SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+    left = true;
+    right = false;
+    facingRight = false;
+    setTimeout(() => left = false, 150);
+    return;
   }
-},{passive:false});
+
+  // ▶️ SWIPE RIGHT = DESTRA
+  if (dx > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+    right = true;
+    left = false;
+    facingRight = true;
+    setTimeout(() => right = false, 150);
+    return;
+  }
+}, { passive:false });
 
 /* ================= IMAGES ================= */
 function img(s){const i=new Image(); i.src=s; return i;}
