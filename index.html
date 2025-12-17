@@ -14,8 +14,8 @@ body{
   font-family:Arial,sans-serif;
   text-align:center;
   overflow:hidden;
+  overscroll-behavior:none;
 }
-
 h1{margin:10px 0}
 
 #gameContainer{
@@ -49,22 +49,21 @@ canvas{
   background:rgba(0,0,0,.85);
   display:none;
   flex-direction:column;
-  align-items:center;
   justify-content:center;
+  align-items:center;
   z-index:10;
 }
-
 #gameOverScreen h2{
-  font-size:42px;
-  color:#ff4444;
+  font-size:40px;
+  color:#ff4d4d;
 }
-
 button{
-  margin-top:20px;
   padding:12px 24px;
   font-size:18px;
-  cursor:pointer;
+  margin-top:20px;
 }
+
+/* particelle */
 </style>
 </head>
 
@@ -95,9 +94,8 @@ const sounds={
   miss:new Audio("miss.wav"),
   gameOver:new Audio("game_over.wav")
 };
-
 sounds.bg.loop=true;
-sounds.bg.volume=0.08;
+sounds.bg.volume=0.07;
 sounds.collect.volume=0.9;
 sounds.jump.volume=0.9;
 sounds.negative.volume=1;
@@ -110,9 +108,8 @@ function unlockAudio(){
   audioUnlocked=true;
   sounds.bg.play().catch(()=>{});
 }
-
-["touchstart","mousedown","keydown"].forEach(evt=>{
-  document.addEventListener(evt,unlockAudio,{once:true});
+["touchstart","mousedown","keydown"].forEach(e=>{
+  document.addEventListener(e,unlockAudio,{once:true});
 });
 
 /* ================= CANVAS ================= */
@@ -123,8 +120,7 @@ function resize(){
   canvas.width=Math.min(innerWidth,800);
   canvas.height=canvas.width*0.75;
 }
-resize();
-addEventListener("resize",resize);
+resize(); addEventListener("resize",resize);
 
 /* ================= GAME STATE ================= */
 let score=0;
@@ -132,45 +128,73 @@ let highScore=+localStorage.getItem("sammyHigh")||0;
 let timeLeft=120;
 let lastTime=performance.now();
 let gameOver=false;
+let shake=0;
 
 /* ================= PLAYER ================= */
 const PW=80,PH=80;
-let px=canvas.width/2,py=canvas.height-PH;
-let vy=0,jumping=false,facingRight=true;
+let px=canvas.width/2, py=canvas.height-PH;
+let vy=0, jumping=false, facingRight=true;
 
-const GRAVITY=2600,JUMP=-850;
-let coyoteTime=0.12,jumpBuffer=0;
+const GRAVITY=2600;
+const JUMP=-850;
+
+let coyoteTime=0.12;
+let jumpBuffer=0;
 
 /* ================= INPUT ================= */
-let left=false,right=false;
+let left=false, right=false;
 
+/* keyboard */
 addEventListener("keydown",e=>{
-  if(e.key==="ArrowLeft"){left=true;facingRight=false}
-  if(e.key==="ArrowRight"){right=true;facingRight=true}
+  if(e.key==="ArrowLeft"){left=true; facingRight=false}
+  if(e.key==="ArrowRight"){right=true; facingRight=true}
   if(e.code==="Space"){
     jumpBuffer=0.15;
-    if(!jumping)coyoteTime=0.12;
+    if(!jumping) coyoteTime=0.12;
   }
 });
 addEventListener("keyup",e=>{
-  if(e.key==="ArrowLeft")left=false;
-  if(e.key==="ArrowRight")right=false;
+  if(e.key==="ArrowLeft") left=false;
+  if(e.key==="ArrowRight") right=false;
 });
+
+/* ======== TOUCH SWIPE CONTROLS ======== */
+let touchSX=0, touchSY=0;
+const SWIPE_THRESHOLD=30;
 
 canvas.addEventListener("touchstart",e=>{
   e.preventDefault();
-  const x=e.touches[0].clientX;
-  if(x<innerWidth/2){left=true;facingRight=false}
-  else{right=true;facingRight=true}
-  jumpBuffer=0.15;
-  if(!jumping)coyoteTime=0.12;
+  const t=e.touches[0];
+  touchSX=t.clientX;
+  touchSY=t.clientY;
 },{passive:false});
 
-canvas.addEventListener("touchend",()=>{left=false;right=false},{passive:false});
-canvas.addEventListener("touchmove",e=>e.preventDefault(),{passive:false});
+canvas.addEventListener("touchend",e=>{
+  e.preventDefault();
+  const t=e.changedTouches[0];
+  const dx=t.clientX-touchSX;
+  const dy=t.clientY-touchSY;
+
+  // swipe su = salto
+  if(dy < -SWIPE_THRESHOLD && Math.abs(dy) > Math.abs(dx)){
+    jumpBuffer=0.15;
+    if(!jumping) coyoteTime=0.12;
+    return;
+  }
+
+  // tap laterale
+  if(Math.abs(dx) > Math.abs(dy)){
+    if(dx < 0){
+      left=true; facingRight=false;
+    } else {
+      right=true; facingRight=true;
+    }
+    setTimeout(()=>{left=false; right=false},120);
+  }
+},{passive:false});
 
 /* ================= IMAGES ================= */
-function img(s){const i=new Image();i.src=s;return i;}
+function img(s){const i=new Image(); i.src=s; return i;}
 const IMG={
   bg:img("park.png"),
   run:[img("sam_run1.png"),img("sam_run2.png")],
@@ -182,25 +206,41 @@ const ITEM_SCALE=0.75;
 const SPEED_SCALE=0.8;
 
 const OBJECTS=[
-  {img:img("frisbee.png"),pts:10,size:40*ITEM_SCALE,speed:200*SPEED_SCALE},
-  {img:img("ball.png"),pts:8,size:30*ITEM_SCALE,speed:220*SPEED_SCALE},
-  {img:img("stick.png"),pts:5,size:45*ITEM_SCALE,speed:190*SPEED_SCALE},
-  {img:img("bone.png"),special:"time",size:40*ITEM_SCALE,speed:210*SPEED_SCALE, chance:0.15},
-  {img:img("caffettiera.png"),pts:-15,size:55,speed:190*SPEED_SCALE, chance:0.15},
-  {img:img("secchio.png"),pts:-10,size:55,speed:190*SPEED_SCALE, chance:0.2}
+  {type:"frisbee", img:img("frisbee.png"), pts:10, size:40*ITEM_SCALE, speed:200*SPEED_SCALE},
+  {type:"ball", img:img("ball.png"), pts:8, size:30*ITEM_SCALE, speed:220*SPEED_SCALE},
+  {type:"stick", img:img("stick.png"), pts:5, size:45*ITEM_SCALE, speed:190*SPEED_SCALE},
+  {type:"bone", img:img("bone.png"), special:"time", size:40*ITEM_SCALE, speed:210*SPEED_SCALE, chance:0.15},
+  {type:"caf", img:img("caffettiera.png"), pts:-15, size:55, speed:190*SPEED_SCALE, chance:0.15},
+  {type:"sec", img:img("secchio.png"), pts:-10, size:55, speed:190*SPEED_SCALE, chance:0.2}
 ];
 
-let items=[],spawnRate=1.1;
+/* ================= ITEMS ================= */
+let items=[];
+let spawnRate=1.1;
+
+/* particelle */
+let particles=[];
+function spawnParticles(x,y,color){
+  for(let i=0;i<8;i++){
+    particles.push({
+      x,y,
+      vx:(Math.random()-0.5)*200,
+      vy:(Math.random()-1)*200,
+      life:0.5,
+      color
+    });
+  }
+}
 
 /* ================= UPDATE ================= */
 function update(dt){
   if(gameOver) return;
 
-  if(left)px-=380*dt;
-  if(right)px+=380*dt;
+  if(left) px-=380*dt;
+  if(right) px+=380*dt;
   px=Math.max(PW/2,Math.min(canvas.width-PW/2,px));
 
-  if(!jumping)coyoteTime-=dt;
+  if(!jumping) coyoteTime-=dt;
   if(jumpBuffer>0 && coyoteTime>0 && !jumping){
     jumping=true;
     vy=JUMP;
@@ -224,49 +264,87 @@ function update(dt){
     let t;
     do{t=OBJECTS[Math.floor(Math.random()*OBJECTS.length)]}
     while(t.chance && Math.random()>t.chance);
-    items.push({t,x:Math.random()*canvas.width,y:-40});
+
+    items.push({
+      t,
+      x:Math.random()*canvas.width,
+      y:-40,
+      phase:Math.random()*Math.PI*2,
+      amp:t.type==="frisbee"?50:0,
+      freq:t.type==="frisbee"?2:0
+    });
   }
 
   items.forEach(o=>{
     o.y+=o.t.speed*dt;
+    o.phase+=o.freq*dt;
+    o.x+=Math.cos(o.phase)*o.amp*dt;
 
     if(Math.abs(o.x-px)<45 && Math.abs(o.y-(py+40))<45 && jumping){
-      if(o.t.special==="time"){timeLeft+=5; sounds.collect.play().catch(()=>{})}
-      else if(o.t.pts<0){score+=o.t.pts; sounds.negative.play().catch(()=>{})}
-      else{score+=o.t.pts; sounds.collect.play().catch(()=>{})}
+      if(o.t.special==="time"){
+        timeLeft+=5;
+        spawnParticles(o.x,o.y,"#4dd0ff");
+        sounds.collect.play().catch(()=>{});
+      }else{
+        score+=o.t.pts||0;
+        spawnParticles(o.x,o.y,o.t.pts<0?"#ff4d4d":"#ffe066");
+        if(o.t.pts<0) sounds.negative.play().catch(()=>{});
+        else sounds.collect.play().catch(()=>{});
+      }
+      shake=0.12;
       o.dead=true;
     }
   });
 
   items=items.filter(o=>!o.dead && o.y<canvas.height+60);
+
+  particles.forEach(p=>{
+    p.vy+=600*dt;
+    p.x+=p.vx*dt;
+    p.y+=p.vy*dt;
+    p.life-=dt;
+  });
+  particles=particles.filter(p=>p.life>0);
 }
 
 /* ================= DRAW ================= */
 function draw(){
+  ctx.save();
+  if(shake>0){
+    ctx.translate(Math.random()*6-3,Math.random()*6-3);
+    shake-=0.016;
+  }
   ctx.drawImage(IMG.bg,0,0,canvas.width,canvas.height);
 
-  let pImg;
-  if(jumping)pImg=IMG.jump;
-  else if(left||right)pImg=IMG.run[Math.floor(performance.now()/100)%2];
-  else pImg=IMG.run[0];
-
+  let pImg=jumping?IMG.jump:(left||right?IMG.run[Math.floor(performance.now()/100)%2]:IMG.run[0]);
   ctx.save();
   if(!facingRight){
-    ctx.translate(px,0);ctx.scale(-1,1);
+    ctx.translate(px,0); ctx.scale(-1,1);
     ctx.drawImage(pImg,-PW/2,py,PW,PH);
-  }else ctx.drawImage(pImg,px-PW/2,py,PW,PH);
+  }else{
+    ctx.drawImage(pImg,px-PW/2,py,PW,PH);
+  }
   ctx.restore();
 
   items.forEach(o=>{
     ctx.drawImage(o.t.img,o.x-o.t.size/2,o.y-o.t.size/2,o.t.size,o.t.size);
   });
 
+  particles.forEach(p=>{
+    ctx.fillStyle=p.color;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,3,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  ctx.restore();
+
   score=Math.max(0,score);
   highScore=Math.max(highScore,score);
 
-  scoreEl.textContent="Score: "+score;
-  highEl.textContent="High: "+highScore;
-  timerEl.textContent="Time: "+timeLeft;
+  document.getElementById("score").textContent="Score: "+score;
+  document.getElementById("high").textContent="High: "+highScore;
+  document.getElementById("timer").textContent="Time: "+timeLeft;
 }
 
 /* ================= GAME OVER ================= */
@@ -277,10 +355,7 @@ function endGame(){
   localStorage.setItem("sammyHigh",highScore);
   document.getElementById("gameOverScreen").style.display="flex";
 }
-
-function restartGame(){
-  location.reload();
-}
+function restartGame(){location.reload()}
 
 /* ================= LOOP ================= */
 setInterval(()=>{
@@ -288,10 +363,6 @@ setInterval(()=>{
   timeLeft--;
   if(timeLeft<=0) endGame();
 },1000);
-
-const scoreEl=document.getElementById("score");
-const timerEl=document.getElementById("timer");
-const highEl=document.getElementById("high");
 
 function loop(t){
   const dt=Math.min((t-lastTime)/1000,0.05);
