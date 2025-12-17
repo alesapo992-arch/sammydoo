@@ -17,6 +17,7 @@
       max-width: 800px;
       margin: 0 auto;
       padding: 10px;
+      position: relative;
     }
     #gameCanvas {
       display: block;
@@ -41,7 +42,7 @@
       border-radius: 5px;
     }
     #startScreen, #gameOverScreen, #pauseScreen {
-      position: absolute;
+      position: fixed;
       top: 0;
       left: 0;
       width: 100%;
@@ -67,11 +68,41 @@
       border-radius: 5px;
       transition: background 0.3s;
     }
-    button:hover {
+    button:hover, button:active {
       background: #45a049;
     }
-    .hidden {
+    #controls {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      right: 20px;
       display: none;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 20;
+      pointer-events: none;
+    }
+    #controls button {
+      pointer-events: auto;
+      width: 80px;
+      height: 80px;
+      background: rgba(76, 175, 80, 0.8);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      font-size: 30px;
+      cursor: pointer;
+      transition: background 0.3s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+    #controls button:active {
+      background: rgba(76, 175, 80, 1);
     }
     @media (max-width: 600px) {
       #ui {
@@ -80,6 +111,11 @@
       button {
         font-size: 16px;
         padding: 8px 16px;
+      }
+      #controls button {
+        width: 70px;
+        height: 70px;
+        font-size: 24px;
       }
     }
   </style>
@@ -92,6 +128,11 @@
       <div id="score">Score: 0</div>
       <div id="timer">Time: 120s</div>
       <div id="highScore">High Score: 0</div>
+    </div>
+    <div id="controls">
+      <button id="leftBtn">←</button>
+      <button id="jumpBtn">↑</button>
+      <button id="rightBtn">→</button>
     </div>
     <div id="startScreen">
       <h2>Welcome to SammyDoo!</h2>
@@ -122,17 +163,21 @@
     let gamePaused = false;
     let playerX = 400;
     let playerY = 0;
-    let playerWidth = 80;
-    let playerHeight = 80;
+    const playerWidth = 80;
+    const playerHeight = 80;
     let playerJumping = false;
     let jumpVelocity = 0;
-    let gravity = 2400; // px/s^2
-    let playerMoveSpeed = 400; // px/s
+    const gravity = 2400; // px/s^2
+    const playerMoveSpeed = 400; // px/s
     let animTime = 0;
-    let animFPS = 10; // frames per second for running animation
+    const animFPS = 10;
     let lastTime = performance.now();
-    let spawnProbPerSecond = 1.8; // approximate spawns per second
+    const spawnProbPerSecond = 1.8;
     let timerInterval;
+    const keys = { ArrowLeft: false, ArrowRight: false };
+    let touchLeft = false;
+    let touchRight = false;
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
     // ===== Canvas Setup =====
     function resizeCanvas() {
@@ -145,6 +190,10 @@
     }
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
+
+    if (isMobile) {
+      document.getElementById('controls').style.display = 'flex';
+    }
 
     // ===== Images =====
     const assets = {
@@ -163,7 +212,7 @@
 
     const images = {};
     let assetsLoaded = 0;
-    const totalAssets = assets.dogRun.length + 1 + assets.objects.length + 1;
+    const totalAssets = assets.dogRun.length + 1 + 1 + assets.objects.length;
 
     function loadAsset(src, key) {
       const img = new Image();
@@ -193,22 +242,22 @@
     sounds.bgMusic.volume = 0.3;
     sounds.collect.volume = 0.5;
     sounds.gameOver.volume = 0.5;
+    sounds.bgMusic.load();
 
     let musicStarted = false;
     function startMusic() {
       if (!musicStarted && !gamePaused && !gameOver) {
-        sounds.bgMusic.play().catch(() => {});
+        sounds.bgMusic.play().catch(e => console.error('Music play error:', e));
         musicStarted = true;
       }
     }
-    document.addEventListener('click', startMusic);
-    document.addEventListener('keydown', startMusic);
+    document.addEventListener('click', startMusic, { once: true });
+    document.addEventListener('keydown', startMusic, { once: true });
 
     // ===== Falling Item Class =====
     class FallingItem {
       constructor(type) {
         this.type = type;
-        this.img = images[type.name];
         this.x = Math.random() * (canvas.width - type.size) + type.size / 2;
         this.y = -type.size / 2;
         this.size = type.size;
@@ -217,7 +266,10 @@
       }
       update(dt) {
         this.y += this.speed * dt;
-        if (this.y > canvas.height + this.size / 2) this.remove = true;
+        if (this.y > canvas.height + this.size / 2) {
+          this.remove = true;
+          return;
+        }
         if (playerJumping) {
           const playerCenterY = playerY + playerHeight / 2;
           const halfItem = this.size / 2;
@@ -233,15 +285,15 @@
         }
       }
       draw() {
-        if (this.img) {
-          ctx.drawImage(this.img, this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
+        const img = images[this.type.name];
+        if (img) {
+          ctx.drawImage(img, this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
         }
       }
     }
 
     let fallingItems = [];
 
-    // ===== Spawning Items =====
     function spawnItem() {
       const type = assets.objects[Math.floor(Math.random() * assets.objects.length)];
       fallingItems.push(new FallingItem(type));
@@ -249,12 +301,16 @@
 
     // ===== Update Game State =====
     function update(delta) {
-      const dt = delta / 1000; // seconds
+      const dt = Math.min(delta / 1000, 0.05); // cap dt for stability
       if (gamePaused || !gameStarted || gameOver) return;
 
-      // Player movement
-      if (keys.ArrowLeft) playerX -= playerMoveSpeed * dt;
-      if (keys.ArrowRight) playerX += playerMoveSpeed * dt;
+      // Player horizontal movement
+      if (keys.ArrowLeft || touchLeft) {
+        playerX -= playerMoveSpeed * dt;
+      }
+      if (keys.ArrowRight || touchRight) {
+        playerX += playerMoveSpeed * dt;
+      }
       playerX = Math.max(playerWidth / 2, Math.min(canvas.width - playerWidth / 2, playerX));
 
       // Player jumping
@@ -268,16 +324,16 @@
         }
       }
 
-      // Update falling items
+      // Falling items
       fallingItems.forEach(item => item.update(dt));
       fallingItems = fallingItems.filter(item => !item.remove);
 
-      // Spawn new items
+      // Spawn items
       if (Math.random() < spawnProbPerSecond * dt && fallingItems.length < 6) {
         spawnItem();
       }
 
-      // Update animation time
+      // Animation time
       animTime += dt;
     }
 
@@ -286,16 +342,29 @@
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Background
-      if (images.background) {
-        ctx.drawImage(images.background, 0, 0, canvas.width, canvas.height);
+      const bg = images.background;
+      if (bg) {
+        ctx.drawImage(bg, 0, 0, canvas.width, canvas.height);
       }
 
       // Player
+      const isMoving = (keys.ArrowLeft || keys.ArrowRight || touchLeft || touchRight);
       const runFrame = Math.floor(animTime * animFPS) % assets.dogRun.length;
-      if (playerJumping && images.dogJump) {
-        ctx.drawImage(images.dogJump, playerX - playerWidth / 2, playerY, playerWidth, playerHeight);
-      } else if (images[`dogRun${runFrame}`]) {
-        ctx.drawImage(images[`dogRun${runFrame}`], playerX - playerWidth / 2, playerY, playerWidth, playerHeight);
+      if (playerJumping) {
+        const jumpImg = images.dogJump;
+        if (jumpImg) {
+          ctx.drawImage(jumpImg, playerX - playerWidth / 2, playerY, playerWidth, playerHeight);
+        }
+      } else if (isMoving) {
+        const runImg = images[`dogRun${runFrame}`];
+        if (runImg) {
+          ctx.drawImage(runImg, playerX - playerWidth / 2, playerY, playerWidth, playerHeight);
+        }
+      } else {
+        const idleImg = images.dogRun0;
+        if (idleImg) {
+          ctx.drawImage(idleImg, playerX - playerWidth / 2, playerY, playerWidth, playerHeight);
+        }
       }
 
       // Falling items
@@ -306,16 +375,13 @@
     function gameLoop(timestamp) {
       if (gameOver) return;
 
-      if (!gameStarted || gamePaused) {
-        requestAnimationFrame(gameLoop);
-        return;
-      }
-
       const delta = timestamp - lastTime;
       lastTime = timestamp;
 
-      update(delta);
-      draw();
+      if (gameStarted && !gamePaused) {
+        update(delta);
+        draw();
+      }
 
       requestAnimationFrame(gameLoop);
     }
@@ -333,10 +399,11 @@
           gameOver = true;
           if (score > highScore) {
             highScore = score;
-            localStorage.setItem('sammyDooHighScore', highScore);
+            localStorage.setItem('sammyDooHighScore', highScore.toString());
             document.getElementById('highScore').textContent = `High Score: ${highScore}`;
           }
-          document.getElementById('gameOverScreen').style.display = 'flex';
+          const gameOverScreen = document.getElementById('gameOverScreen');
+          gameOverScreen.style.display = 'flex';
           document.getElementById('finalScore').textContent = `Final Score: ${score}`;
           sounds.bgMusic.pause();
           sounds.gameOver.play().catch(() => {});
@@ -345,13 +412,13 @@
     }
 
     // ===== Controls =====
-    const keys = { ArrowLeft: false, ArrowRight: false };
     document.addEventListener('keydown', e => {
       if (e.key === 'ArrowLeft') keys.ArrowLeft = true;
       if (e.key === 'ArrowRight') keys.ArrowRight = true;
-      if (e.key === ' ' && !playerJumping && gameStarted && !gamePaused) {
+      if (e.code === 'Space' && !playerJumping && gameStarted && !gamePaused) {
+        e.preventDefault();
         playerJumping = true;
-        jumpVelocity = -1200; // px/s
+        jumpVelocity = -1200;
       }
       if (e.key.toLowerCase() === 'p' && gameStarted && !gameOver) {
         togglePause();
@@ -362,42 +429,107 @@
       if (e.key === 'ArrowRight') keys.ArrowRight = false;
     });
 
-    // Mouse controls
+    // Mouse controls (desktop only)
     canvas.addEventListener('mousemove', e => {
-      if (!gameStarted || gamePaused) return;
+      if (!gameStarted || gamePaused || isMobile) return;
       const rect = canvas.getBoundingClientRect();
       playerX = e.clientX - rect.left;
       playerX = Math.max(playerWidth / 2, Math.min(canvas.width - playerWidth / 2, playerX));
     });
-    canvas.addEventListener('mousedown', () => {
-      if (!gameStarted || gamePaused || playerJumping) return;
+    canvas.addEventListener('mousedown', e => {
+      if (!gameStarted || gamePaused || playerJumping || isMobile) return;
       playerJumping = true;
       jumpVelocity = -1200;
     });
 
-    // Touch controls
+    // Touch controls on canvas (desktop touch, but skip mobile)
     canvas.addEventListener('touchstart', e => {
       e.preventDefault();
-      if (!gameStarted || gamePaused || playerJumping) return;
+      if (!gameStarted || gamePaused || playerJumping || isMobile) return;
       playerJumping = true;
       jumpVelocity = -1200;
     });
     canvas.addEventListener('touchmove', e => {
       e.preventDefault();
-      if (!gameStarted || gamePaused) return;
+      if (!gameStarted || gamePaused || isMobile) return;
       const rect = canvas.getBoundingClientRect();
       playerX = e.touches[0].clientX - rect.left;
       playerX = Math.max(playerWidth / 2, Math.min(canvas.width - playerWidth / 2, playerX));
     });
 
-    // ===== Start/Restart/Pause =====
+    // Mobile buttons
+    if (isMobile) {
+      const leftBtn = document.getElementById('leftBtn');
+      const rightBtn = document.getElementById('rightBtn');
+      const jumpBtn = document.getElementById('jumpBtn');
+
+      const handleStart = (btn, isLeft) => {
+        btn.addEventListener('touchstart', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (isLeft) touchLeft = true;
+          else if (btn.id === 'rightBtn') touchRight = true;
+        });
+        btn.addEventListener('mousedown', e => {
+          e.preventDefault();
+          if (isLeft) touchLeft = true;
+          else if (btn.id === 'rightBtn') touchRight = true;
+        });
+      };
+
+      const handleEnd = (btn, isLeft) => {
+        btn.addEventListener('touchend', e => {
+          e.preventDefault();
+          if (isLeft) touchLeft = false;
+          else if (btn.id === 'rightBtn') touchRight = false;
+        });
+        btn.addEventListener('touchcancel', e => {
+          e.preventDefault();
+          if (isLeft) touchLeft = false;
+          else if (btn.id === 'rightBtn') touchRight = false;
+        });
+        btn.addEventListener('mouseup', e => {
+          e.preventDefault();
+          if (isLeft) touchLeft = false;
+          else if (btn.id === 'rightBtn') touchRight = false;
+        });
+        btn.addEventListener('mouseleave', e => {
+          e.preventDefault();
+          if (isLeft) touchLeft = false;
+          else if (btn.id === 'rightBtn') touchRight = false;
+        });
+      };
+
+      handleStart(leftBtn, true);
+      handleEnd(leftBtn, true);
+      handleStart(rightBtn, false);
+      handleEnd(rightBtn, false);
+
+      jumpBtn.addEventListener('touchstart', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!playerJumping && gameStarted && !gamePaused) {
+          playerJumping = true;
+          jumpVelocity = -1200;
+        }
+      });
+      jumpBtn.addEventListener('mousedown', e => {
+        e.preventDefault();
+        if (!playerJumping && gameStarted && !gamePaused) {
+          playerJumping = true;
+          jumpVelocity = -1200;
+        }
+      });
+    }
+
+    // ===== Game Functions =====
     function startGame() {
       if (assetsLoaded < totalAssets) {
-        alert('Assets are still loading. Please wait a moment and try again.');
+        alert('Assets still loading. Please wait.');
         return;
       }
-      document.getElementById('startScreen').classList.add('hidden');
-      document.getElementById('score').textContent = `Score: ${score}`;
+      document.getElementById('startScreen').style.display = 'none';
+      document.getElementById('score').textContent = 'Score: 0';
       gameStarted = true;
       gameOver = false;
       gamePaused = false;
@@ -409,6 +541,7 @@
       playerJumping = false;
       jumpVelocity = 0;
       animTime = 0;
+      if (timerInterval) clearInterval(timerInterval);
       startTimer();
       startMusic();
     }
@@ -428,8 +561,8 @@
     document.getElementById('startButton').addEventListener('click', startGame);
     document.getElementById('restartButton').addEventListener('click', () => {
       document.getElementById('gameOverScreen').style.display = 'none';
-      sounds.bgMusic.currentTime = 0;
-      clearInterval(timerInterval);
+      if (sounds.bgMusic) sounds.bgMusic.currentTime = 0;
+      if (timerInterval) clearInterval(timerInterval);
       startGame();
     });
     document.getElementById('resumeButton').addEventListener('click', togglePause);
