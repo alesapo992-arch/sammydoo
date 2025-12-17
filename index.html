@@ -1,3 +1,5 @@
+html
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -40,7 +42,7 @@
       padding: 5px 10px;
       border-radius: 5px;
     }
-    #startScreen, #gameOverScreen {
+    #startScreen, #gameOverScreen, #pauseScreen {
       position: absolute;
       top: 0;
       left: 0;
@@ -53,7 +55,7 @@
       align-items: center;
       z-index: 10;
     }
-    #gameOverScreen {
+    #gameOverScreen, #pauseScreen {
       display: none;
     }
     button {
@@ -103,7 +105,10 @@
       <h2>Game Over!</h2>
       <p id="finalScore">Final Score: 0</p>
       <button id="restartButton">Restart</button>
-      <button id="pauseButton">Pause</button>
+    </div>
+    <div id="pauseScreen">
+      <h2>Paused</h2>
+      <button id="resumeButton">Resume</button>
     </div>
   </div>
 
@@ -112,18 +117,23 @@
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     let score = 0;
-    let highScore = localStorage.getItem('sammyDooHighScore') || 0;
+    let highScore = parseInt(localStorage.getItem('sammyDooHighScore')) || 0;
     let timeLeft = 120;
     let gameOver = false;
     let gameStarted = false;
     let gamePaused = false;
     let playerX = 400;
     let playerY = 0;
+    let playerWidth = 80;
+    let playerHeight = 80;
     let playerJumping = false;
-    let jumpVelocity = -20;
-    let gravity = 0.8;
-    let animationFrame = 0;
+    let jumpVelocity = 0;
+    let gravity = 2400; // px/s^2
+    let playerMoveSpeed = 400; // px/s
+    let animTime = 0;
+    let animFPS = 10; // frames per second for running animation
     let lastTime = performance.now();
+    let spawnProbPerSecond = 1.8; // approximate spawns per second
 
     // ===== Canvas Setup =====
     function resizeCanvas() {
@@ -131,7 +141,8 @@
       const aspectRatio = 4 / 3;
       canvas.width = Math.min(window.innerWidth - 20, maxWidth);
       canvas.height = canvas.width / aspectRatio;
-      playerY = canvas.height - 80;
+      playerY = canvas.height - playerHeight;
+      playerX = Math.max(playerWidth / 2, Math.min(canvas.width - playerWidth / 2, playerX));
     }
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
@@ -142,12 +153,12 @@
       dogJump: 'sam_jump.png',
       background: 'park.png',
       objects: [
-        { name: 'Frisbee', file: 'frisbee.png', points: 10, size: 40, speed: 2 },
-        { name: 'Ball', file: 'ball.png', points: 8, size: 30, speed: 2.5 },
-        { name: 'Stick', file: 'stick.png', points: 5, size: 50, speed: 1.8 },
-        { name: 'Football', file: 'football.png', points: 15, size: 45, speed: 2.2 },
-        { name: 'Chicken', file: 'chicken.png', points: 20, size: 40, speed: 2.8 },
-        { name: 'Rope knot', file: 'rope.png', points: 12, size: 35, speed: 2.3 }
+        { name: 'Frisbee', file: 'frisbee.png', points: 10, size: 40, speed: 200 },
+        { name: 'Ball', file: 'ball.png', points: 8, size: 30, speed: 250 },
+        { name: 'Stick', file: 'stick.png', points: 5, size: 50, speed: 180 },
+        { name: 'Football', file: 'football.png', points: 15, size: 45, speed: 220 },
+        { name: 'Chicken', file: 'chicken.png', points: 20, size: 40, speed: 280 },
+        { name: 'Rope knot', file: 'rope.png', points: 12, size: 35, speed: 230 }
       ]
     };
 
@@ -186,7 +197,7 @@
 
     let musicStarted = false;
     function startMusic() {
-      if (!musicStarted && !gamePaused) {
+      if (!musicStarted && !gamePaused && !gameOver) {
         sounds.bgMusic.play().catch(() => {});
         musicStarted = true;
       }
@@ -202,18 +213,19 @@
         this.x = Math.random() * (canvas.width - type.size) + type.size / 2;
         this.y = -type.size;
         this.size = type.size;
-        this.speed = type.speed + Math.random() * 0.5;
+        this.speed = type.speed + Math.random() * 50;
         this.remove = false;
       }
-      update() {
-        this.y += this.speed;
-        if (playerJumping && Math.abs(this.y - playerY) < this.size &&
-            Math.abs(this.x - playerX) < (this.size + 40) / 2) {
+      update(dt) {
+        this.y += this.speed * dt;
+        const playerCenterY = playerY + playerHeight / 2 - 40; // Adjust based on draw offset
+        if (Math.abs(this.y - playerCenterY) < (this.size / 2 + playerHeight / 2) &&
+            Math.abs(this.x - playerX) < (this.size / 2 + playerWidth / 2)) {
           score += this.type.points;
           sounds.collect.play().catch(() => {});
           this.remove = true;
         }
-        if (this.y > canvas.height) this.remove = true;
+        if (this.y > canvas.height + this.size) this.remove = true;
       }
       draw() {
         if (this.img) {
@@ -226,36 +238,40 @@
 
     // ===== Spawning Items =====
     function spawnItem() {
-      if (Math.random() < 0.03 && fallingItems.length < 6) {
-        const type = assets.objects[Math.floor(Math.random() * assets.objects.length)];
-        fallingItems.push(new FallingItem(type));
-      }
+      const type = assets.objects[Math.floor(Math.random() * assets.objects.length)];
+      fallingItems.push(new FallingItem(type));
     }
 
     // ===== Update Game State =====
     function update(delta) {
+      const dt = delta / 1000; // seconds
       if (gamePaused || !gameStarted || gameOver) return;
 
       // Player movement
+      if (keys.ArrowLeft) playerX -= playerMoveSpeed * dt;
+      if (keys.ArrowRight) playerX += playerMoveSpeed * dt;
+      playerX = Math.max(playerWidth / 2, Math.min(canvas.width - playerWidth / 2, playerX));
+
       if (playerJumping) {
-        playerY += jumpVelocity;
-        jumpVelocity += gravity;
-        if (playerY >= canvas.height - 80) {
-          playerY = canvas.height - 80;
+        playerY += jumpVelocity * dt;
+        jumpVelocity += gravity * dt;
+        if (playerY >= canvas.height - playerHeight) {
+          playerY = canvas.height - playerHeight;
           playerJumping = false;
-          jumpVelocity = -20;
         }
       }
 
       // Update falling items
-      fallingItems.forEach(item => item.update());
+      fallingItems.forEach(item => item.update(dt));
       fallingItems = fallingItems.filter(item => !item.remove);
 
       // Spawn new items
-      spawnItem();
+      if (Math.random() < spawnProbPerSecond * dt && fallingItems.length < 6) {
+        spawnItem();
+      }
 
-      // Update animation frame
-      animationFrame = (animationFrame + delta * 0.01) % 2;
+      // Update animation time
+      animTime += dt;
     }
 
     // ===== Draw Game =====
@@ -268,10 +284,11 @@
       }
 
       // Player
+      const runFrame = Math.floor(animTime * animFPS) % assets.dogRun.length;
       if (playerJumping && images.dogJump) {
-        ctx.drawImage(images.dogJump, playerX - 40, playerY - 40, 80, 80);
-      } else if (images[`dogRun${Math.floor(animationFrame)}`]) {
-        ctx.drawImage(images[`dogRun${Math.floor(animationFrame)}`], playerX - 40, playerY - 40, 80, 80);
+        ctx.drawImage(images.dogJump, playerX - playerWidth / 2, playerY, playerWidth, playerHeight);
+      } else if (images[`dogRun${runFrame}`]) {
+        ctx.drawImage(images[`dogRun${runFrame}`], playerX - playerWidth / 2, playerY, playerWidth, playerHeight);
       }
 
       // Falling items
@@ -281,42 +298,44 @@
       document.getElementById('score').textContent = `Score: ${score}`;
       document.getElementById('timer').textContent = `Time: ${timeLeft}s`;
       document.getElementById('highScore').textContent = `High Score: ${highScore}`;
-
-      // Game Over
-      if (gameOver) {
-        document.getElementById('gameOverScreen').style.display = 'flex';
-        document.getElementById('finalScore').textContent = `Final Score: ${score}`;
-        sounds.bgMusic.pause();
-        sounds.gameOver.play().catch(() => {});
-      }
     }
 
     // ===== Game Loop =====
     function gameLoop(timestamp) {
+      if (gameOver) return;
+
       if (!gameStarted || gamePaused) {
         requestAnimationFrame(gameLoop);
         return;
       }
+
       const delta = timestamp - lastTime;
       lastTime = timestamp;
+
       update(delta);
       draw();
+
       requestAnimationFrame(gameLoop);
     }
 
     // ===== Timer =====
+    let timerInterval;
     function startTimer() {
-      const timer = setInterval(() => {
+      timerInterval = setInterval(() => {
         if (gamePaused || !gameStarted) return;
         if (timeLeft > 0) {
           timeLeft--;
         } else {
-          clearInterval(timer);
+          clearInterval(timerInterval);
           gameOver = true;
           if (score > highScore) {
             highScore = score;
             localStorage.setItem('sammyDooHighScore', highScore);
           }
+          document.getElementById('gameOverScreen').style.display = 'flex';
+          document.getElementById('finalScore').textContent = `Final Score: ${score}`;
+          sounds.bgMusic.pause();
+          sounds.gameOver.play().catch(() => {});
         }
       }, 1000);
     }
@@ -328,9 +347,11 @@
       if (e.key === 'ArrowRight') keys.ArrowRight = true;
       if (e.key === ' ' && !playerJumping && gameStarted && !gamePaused) {
         playerJumping = true;
-        jumpVelocity = -20;
+        jumpVelocity = -1200; // px/s (adjusted for delta time)
       }
-      if (e.key === 'p') togglePause();
+      if (e.key.toLowerCase() === 'p' && gameStarted && !gameOver) {
+        togglePause();
+      }
     });
     document.addEventListener('keyup', e => {
       if (e.key === 'ArrowLeft') keys.ArrowLeft = false;
@@ -342,46 +363,35 @@
       if (!gameStarted || gamePaused) return;
       const rect = canvas.getBoundingClientRect();
       playerX = e.clientX - rect.left;
-      playerX = Math.max(40, Math.min(canvas.width - 40, playerX));
+      playerX = Math.max(playerWidth / 2, Math.min(canvas.width - playerWidth / 2, playerX));
     });
     canvas.addEventListener('mousedown', () => {
-      if (!gameStarted || gamePaused) return;
-      if (!playerJumping) {
-        playerJumping = true;
-        jumpVelocity = -20;
-      }
+      if (!gameStarted || gamePaused || playerJumping) return;
+      playerJumping = true;
+      jumpVelocity = -1200;
     });
 
     // Touch controls
-    let touchStartX = 0;
     canvas.addEventListener('touchstart', e => {
       e.preventDefault();
-      if (!gameStarted || gamePaused) return;
-      touchStartX = e.touches[0].clientX;
-      if (!playerJumping) {
-        playerJumping = true;
-        jumpVelocity = -20;
-      }
+      if (!gameStarted || gamePaused || playerJumping) return;
+      playerJumping = true;
+      jumpVelocity = -1200;
     });
     canvas.addEventListener('touchmove', e => {
       e.preventDefault();
       if (!gameStarted || gamePaused) return;
       const rect = canvas.getBoundingClientRect();
       playerX = e.touches[0].clientX - rect.left;
-      playerX = Math.max(40, Math.min(canvas.width - 40, playerX));
+      playerX = Math.max(playerWidth / 2, Math.min(canvas.width - playerWidth / 2, playerX));
     });
-
-    // Update player movement based on keys
-    function updatePlayerMovement() {
-      if (!gameStarted || gamePaused) return;
-      if (keys.ArrowLeft) playerX -= 5;
-      if (keys.ArrowRight) playerX += 5;
-      playerX = Math.max(40, Math.min(canvas.width - 40, playerX));
-    }
-    setInterval(updatePlayerMovement, 16);
 
     // ===== Start/Restart/Pause =====
     function startGame() {
+      if (assetsLoaded < totalAssets) {
+        alert('Assets are still loading. Please wait a moment and try again.');
+        return;
+      }
       document.getElementById('startScreen').classList.add('hidden');
       gameStarted = true;
       gameOver = false;
@@ -390,9 +400,10 @@
       timeLeft = 120;
       fallingItems = [];
       playerX = canvas.width / 2;
-      playerY = canvas.height - 80;
+      playerY = canvas.height - playerHeight;
       playerJumping = false;
-      jumpVelocity = -20;
+      jumpVelocity = 0;
+      animTime = 0;
       startTimer();
       startMusic();
     }
@@ -400,7 +411,8 @@
     function togglePause() {
       if (!gameStarted || gameOver) return;
       gamePaused = !gamePaused;
-      document.getElementById('pauseButton').textContent = gamePaused ? 'Resume' : 'Pause';
+      const pauseScreen = document.getElementById('pauseScreen');
+      pauseScreen.style.display = gamePaused ? 'flex' : 'none';
       if (gamePaused) {
         sounds.bgMusic.pause();
       } else {
@@ -412,9 +424,10 @@
     document.getElementById('restartButton').addEventListener('click', () => {
       document.getElementById('gameOverScreen').style.display = 'none';
       sounds.bgMusic.currentTime = 0;
+      clearInterval(timerInterval);
       startGame();
     });
-    document.getElementById('pauseButton').addEventListener('click', togglePause);
+    document.getElementById('resumeButton').addEventListener('click', togglePause);
 
     // ===== Initialize =====
     document.getElementById('highScore').textContent = `High Score: ${highScore}`;
@@ -422,3 +435,4 @@
   </script>
 </body>
 </html>
+
