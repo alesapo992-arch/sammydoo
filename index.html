@@ -11,8 +11,8 @@ body {
   margin:0;
   background:#111;
   color:#fff;
-  text-align:center;
   font-family:Arial,sans-serif;
+  text-align:center;
   overflow:hidden;
   overscroll-behavior:none;
 }
@@ -47,6 +47,12 @@ canvas {
   font-size:16px;
 }
 
+.comboBadge {
+  background:rgba(255,165,0,.85);
+  color:#000;
+  font-weight:bold;
+}
+
 .floating {
   position:absolute;
   color:yellow;
@@ -68,8 +74,8 @@ canvas {
   <canvas id="gameCanvas"></canvas>
   <div id="ui">
     <div id="score" class="badge">Score: 0</div>
+    <div id="combo" class="badge comboBadge">Combo: 0</div>
     <div id="timer" class="badge">Time: 120</div>
-    <div id="high" class="badge">High: 0</div>
   </div>
 </div>
 
@@ -88,7 +94,6 @@ addEventListener('resize',resize);
 /* ================= GAME STATE ================= */
 let score = 0;
 let timeLeft = 120;
-let highScore = +localStorage.getItem('sammyHigh') || 0;
 let lastTime = performance.now();
 let shake = 0;
 
@@ -98,56 +103,42 @@ let px = canvas.width/2;
 let py = canvas.height - PH;
 let vy = 0;
 let jumping = false;
+let facingRight = true;
 
 const GRAVITY = 2600;
 const JUMP = -850;
 
-/* direzione */
-let facingRight = true;
-
 /* jump forgiveness */
 let coyoteTime = 0.12;
 let jumpBuffer = 0;
-const COYOTE = 0.12;
-const JBUF = 0.15;
 
 /* ================= INPUT ================= */
 let left = false;
 let right = false;
 
-/* keyboard */
 addEventListener('keydown',e=>{
   if(e.key==='ArrowLeft') left=true;
   if(e.key==='ArrowRight') right=true;
-  if(e.code==='Space') jumpBuffer = JBUF;
+  if(e.code==='Space') jumpBuffer = 0.15;
 });
 addEventListener('keyup',e=>{
   if(e.key==='ArrowLeft') left=false;
   if(e.key==='ArrowRight') right=false;
 });
 
-/* touch */
 canvas.addEventListener('touchstart',e=>{
   e.preventDefault();
   const x = e.touches[0].clientX;
-  if(x < innerWidth/2){
-    left=true;
-    facingRight = false;
-  } else {
-    right=true;
-    facingRight = true;
-  }
-  jumpBuffer = JBUF;
-  if(!jumping) coyoteTime = COYOTE;
+  if(x < innerWidth/2){ left=true; facingRight=false; }
+  else { right=true; facingRight=true; }
+  jumpBuffer = 0.15;
 },{passive:false});
 
 canvas.addEventListener('touchend',()=>{
   left=false; right=false;
 },{passive:false});
 
-canvas.addEventListener('touchmove',e=>{
-  e.preventDefault();
-},{passive:false});
+canvas.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
 
 /* ================= IMAGES ================= */
 function img(s){ const i=new Image(); i.src=s; return i; }
@@ -158,12 +149,15 @@ const IMG = {
   jump:img('sam_jump.png')
 };
 
+/* ================= OBJECTS ================= */
+const ITEM_SCALE = 0.75;
+
 const OBJECTS = [
-  {img:img('frisbee.png'), pts:10, size:40, speed:220},
-  {img:img('ball.png'), pts:8, size:30, speed:250},
-  {img:img('stick.png'), pts:5, size:45, speed:200},
-  {img:img('star.png'), special:'x2', size:40, speed:240, chance:0.15},
-  {img:img('bone.png'), special:'time', size:40, speed:240, chance:0.15}
+  {img:img('frisbee.png'), pts:10, size:40*ITEM_SCALE, speed:220},
+  {img:img('ball.png'), pts:8,  size:30*ITEM_SCALE, speed:250},
+  {img:img('stick.png'), pts:5, size:45*ITEM_SCALE, speed:200},
+  {img:img('star.png'), special:'x2', size:40*ITEM_SCALE, speed:240, chance:0.12},
+  {img:img('bone.png'), special:'time', size:40*ITEM_SCALE, speed:240, chance:0.12}
 ];
 
 /* ================= AUDIO ================= */
@@ -172,26 +166,32 @@ const sounds = {
   collect:new Audio('collect.wav'),
   power:new Audio('power.wav')
 };
-
 sounds.bg.loop=true;
 sounds.bg.volume=0.18;
 sounds.collect.volume=0.7;
 sounds.power.volume=0.8;
 
 let audioUnlocked=false;
-function unlockAudio(){
-  if(audioUnlocked) return;
-  audioUnlocked=true;
-  sounds.bg.play().catch(()=>{});
+addEventListener('touchstart',()=>{
+  if(!audioUnlocked){
+    audioUnlocked=true;
+    sounds.bg.play().catch(()=>{});
+  }
+},{once:true});
+
+/* ================= COMBO ================= */
+let combo = 0;
+
+function getComboMultiplier(){
+  if(combo >= 10) return 4;
+  if(combo >= 6) return 3;
+  if(combo >= 3) return 2;
+  return 1;
 }
-addEventListener('touchstart',unlockAudio,{once:true});
-addEventListener('mousedown',unlockAudio,{once:true});
 
 /* ================= ITEMS ================= */
 let items=[];
 let spawnRate=1.2;
-let mult=1;
-let multTime=0;
 
 function floatText(txt,x,y){
   const d=document.createElement('div');
@@ -207,19 +207,12 @@ function floatText(txt,x,y){
 let anim=0;
 
 function update(dt){
-  spawnRate += dt * 0.008;
-  spawnRate = Math.min(spawnRate, 2.2);
+  // movement
+  if(left){ px-=400*dt; facingRight=false; }
+  if(right){ px+=400*dt; facingRight=true; }
+  px=Math.max(PW/2,Math.min(canvas.width-PW/2,px));
 
-  if(left){
-    px -= 400*dt;
-    facingRight = false;
-  }
-  if(right){
-    px += 400*dt;
-    facingRight = true;
-  }
-  px = Math.max(PW/2,Math.min(canvas.width-PW/2,px));
-
+  // jump
   if(!jumping) coyoteTime -= dt;
   if(jumpBuffer>0 && coyoteTime>0 && !jumping){
     jumping=true;
@@ -227,57 +220,65 @@ function update(dt){
     jumpBuffer=0;
     coyoteTime=0;
   }
-
   if(jumping){
-    vy += GRAVITY*dt;
-    py += vy*dt;
-    if(py >= canvas.height-PH){
-      py = canvas.height-PH;
-      vy = 0;
+    vy+=GRAVITY*dt;
+    py+=vy*dt;
+    if(py>=canvas.height-PH){
+      py=canvas.height-PH;
+      vy=0;
       jumping=false;
-      coyoteTime = COYOTE;
+      coyoteTime=0.12;
     }
   }
-  if(jumpBuffer>0) jumpBuffer-=dt;
+  jumpBuffer=Math.max(0,jumpBuffer-dt);
+
+  // spawn
+  spawnRate+=dt*0.008;
+  spawnRate=Math.min(spawnRate,2.2);
 
   if(Math.random()<spawnRate*dt && items.length<4){
     let t;
-    do {
-      t = OBJECTS[Math.floor(Math.random()*OBJECTS.length)];
-    } while(t.special && Math.random()>t.chance);
-
+    do{
+      t=OBJECTS[Math.floor(Math.random()*OBJECTS.length)];
+    }while(t.special && Math.random()>t.chance);
     items.push({t,x:Math.random()*(canvas.width-40)+20,y:-40});
   }
 
   items.forEach(o=>{
-    o.y += o.t.speed * dt;
-    if(Math.abs(o.x-px)<45 && Math.abs(o.y-(py+40))<45 && jumping){
+    o.y+=o.t.speed*dt;
+
+    // missed = reset combo
+    if(o.y>canvas.height+40 && !o.collected){
+      combo=0;
+      o.dead=true;
+    }
+
+    // collision
+    if(Math.abs(o.x-px)<40 && Math.abs(o.y-(py+40))<40 && jumping){
+      o.collected=true;
+      o.dead=true;
+
       if(o.t.special==='x2'){
-        mult=2; multTime=5;
         floatText('x2!',o.x,o.y);
         sounds.power.play().catch(()=>{});
-      }else if(o.t.special==='time'){
+      } else if(o.t.special==='time'){
         timeLeft+=5;
         floatText('+5s',o.x,o.y);
         sounds.power.play().catch(()=>{});
-      }else{
-        score += o.t.pts * mult;
-        floatText('+'+(o.t.pts*mult),o.x,o.y);
+      } else {
+        combo++;
+        const mult=getComboMultiplier();
+        const gain=o.t.pts*mult;
+        score+=gain;
+        floatText(`+${gain} (x${mult})`,o.x,o.y);
         sounds.collect.play().catch(()=>{});
       }
       shake=0.12;
-      o.dead=true;
     }
   });
 
-  items = items.filter(o=>!o.dead && o.y<canvas.height+60);
-
-  if(multTime>0){
-    multTime-=dt;
-    if(multTime<=0) mult=1;
-  }
-
-  anim += dt*10;
+  items=items.filter(o=>!o.dead);
+  anim+=dt*10;
 }
 
 /* ================= DRAW ================= */
@@ -291,13 +292,9 @@ function draw(){
   ctx.drawImage(IMG.bg,0,0,canvas.width,canvas.height);
 
   let pImg;
-  if(jumping){
-    pImg = IMG.jump;
-  } else if(left || right){
-    pImg = IMG.run[Math.floor(anim)%2];
-  } else {
-    pImg = IMG.run[0];
-  }
+  if(jumping) pImg=IMG.jump;
+  else if(left||right) pImg=IMG.run[Math.floor(anim)%2];
+  else pImg=IMG.run[0];
 
   ctx.save();
   if(!facingRight){
@@ -310,39 +307,31 @@ function draw(){
   ctx.restore();
 
   items.forEach(o=>{
-    ctx.drawImage(o.t.img,
-      o.x-o.t.size/2,
-      o.y-o.t.size/2,
-      o.t.size,o.t.size);
+    ctx.drawImage(o.t.img,o.x-o.t.size/2,o.y-o.t.size/2,o.t.size,o.t.size);
   });
 
   ctx.restore();
+
+  scoreEl.textContent='Score: '+score;
+  comboEl.textContent='Combo: '+combo;
+  timerEl.textContent='Time: '+timeLeft;
 }
 
 /* ================= LOOP ================= */
 setInterval(()=>{
   timeLeft--;
-  if(timeLeft<=0){
-    if(score>highScore){
-      highScore=score;
-      localStorage.setItem('sammyHigh',highScore);
-    }
-    location.reload();
-  }
+  if(timeLeft<=0) location.reload();
 },1000);
 
 const scoreEl=document.getElementById('score');
+const comboEl=document.getElementById('combo');
 const timerEl=document.getElementById('timer');
-const highEl=document.getElementById('high');
 
 function loop(t){
   const dt=Math.min((t-lastTime)/1000,0.05);
   lastTime=t;
   update(dt);
   draw();
-  scoreEl.textContent='Score: '+score;
-  timerEl.textContent='Time: '+timeLeft;
-  highEl.textContent='High: '+highScore;
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
