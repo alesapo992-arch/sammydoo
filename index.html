@@ -14,9 +14,8 @@ body{
   font-family:Arial,sans-serif;
   text-align:center;
   overflow:hidden;
-  overscroll-behavior:none;
 }
-h1{margin:10px 0}
+h1{margin:8px 0}
 
 #gameContainer{
   max-width:800px;
@@ -54,13 +53,30 @@ canvas{
   z-index:10;
 }
 #gameOverScreen h2{
-  font-size:40px;
-  color:#ff4d4d;
+  font-size:42px;
+  color:#ff4444;
 }
 button{
-  padding:12px 24px;
-  font-size:18px;
   margin-top:20px;
+  padding:12px 26px;
+  font-size:18px;
+}
+
+#warning{
+  position:absolute;
+  top:50%;
+  left:20px;
+  width:60px;
+  height:60px;
+  display:none;
+  animation:blink 0.4s infinite;
+  z-index:9;
+}
+
+@keyframes blink{
+  0%{opacity:1}
+  50%{opacity:.2}
+  100%{opacity:1}
 }
 
 /* particelle */
@@ -70,6 +86,7 @@ button{
 <body>
 <div id="gameContainer">
   <h1>🐶 SammyDoo Jump & Catch</h1>
+  <img id="warning" src="warning.png">
   <canvas id="gameCanvas"></canvas>
 
   <div id="ui">
@@ -92,7 +109,8 @@ const sounds={
   jump:new Audio("jump.wav"),
   negative:new Audio("negative.wav"),
   miss:new Audio("miss.wav"),
-  gameOver:new Audio("game_over.wav")
+  gameOver:new Audio("game_over.wav"),
+  warning:new Audio("dog_warning.wav")
 };
 sounds.bg.loop=true;
 sounds.bg.volume=0.07;
@@ -101,6 +119,7 @@ sounds.jump.volume=0.9;
 sounds.negative.volume=1;
 sounds.miss.volume=0.8;
 sounds.gameOver.volume=1;
+sounds.warning.volume=0.7;
 
 let audioUnlocked=false;
 function unlockAudio(){
@@ -141,94 +160,63 @@ const JUMP=-850;
 let coyoteTime=0.12;
 let jumpBuffer=0;
 
-/* ================= INPUT ================= */
-let left=false, right=false;
+/* ================= INPUT (SWIPE) ================= */
+let left=false,right=false;
+let touchSX=0,touchSY=0;
+const SWIPE_THRESHOLD=35;
 
-/* keyboard */
-addEventListener("keydown",e=>{
-  if(e.key==="ArrowLeft"){left=true; facingRight=false}
-  if(e.key==="ArrowRight"){right=true; facingRight=true}
-  if(e.code==="Space"){
+canvas.addEventListener("touchstart",e=>{
+  e.preventDefault();
+  const t=e.touches[0];
+  touchSX=t.clientX; touchSY=t.clientY;
+},{passive:false});
+
+canvas.addEventListener("touchend",e=>{
+  e.preventDefault();
+  const t=e.changedTouches[0];
+  const dx=t.clientX-touchSX;
+  const dy=t.clientY-touchSY;
+
+  if(dy<-SWIPE_THRESHOLD && Math.abs(dy)>Math.abs(dx)){
     jumpBuffer=0.15;
     if(!jumping) coyoteTime=0.12;
-  }
-});
-addEventListener("keyup",e=>{
-  if(e.key==="ArrowLeft") left=false;
-  if(e.key==="ArrowRight") right=false;
-});
-
-/* ======== TOUCH SWIPE CONTROLS ======== */
-let touchStartX = 0;
-let touchStartY = 0;
-const SWIPE_THRESHOLD = 35; // sensibilità swipe
-
-canvas.addEventListener("touchstart", e => {
-  e.preventDefault();
-  const t = e.touches[0];
-  touchStartX = t.clientX;
-  touchStartY = t.clientY;
-}, { passive:false });
-
-canvas.addEventListener("touchend", e => {
-  e.preventDefault();
-  const t = e.changedTouches[0];
-
-  const dx = t.clientX - touchStartX;
-  const dy = t.clientY - touchStartY;
-
-  // 🔼 SWIPE UP / diagonale = SALTO
-  if (dy < -SWIPE_THRESHOLD && Math.abs(dy) > Math.abs(dx)) {
-    jumpBuffer = 0.15;
-    if (!jumping) coyoteTime = 0.12;
     return;
   }
 
-  // ◀️ SWIPE LEFT = SINISTRA
-  if (dx < -SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
-    left = true;
-    right = false;
-    facingRight = false;
-    setTimeout(() => left = false, 150);
-    return;
+  if(dx<-SWIPE_THRESHOLD){
+    left=true; facingRight=false;
+    setTimeout(()=>left=false,140);
+  }else if(dx>SWIPE_THRESHOLD){
+    right=true; facingRight=true;
+    setTimeout(()=>right=false,140);
   }
-
-  // ▶️ SWIPE RIGHT = DESTRA
-  if (dx > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
-    right = true;
-    left = false;
-    facingRight = true;
-    setTimeout(() => right = false, 150);
-    return;
-  }
-}, { passive:false });
+},{passive:false});
 
 /* ================= IMAGES ================= */
 function img(s){const i=new Image(); i.src=s; return i;}
 const IMG={
   bg:img("park.png"),
   run:[img("sam_run1.png"),img("sam_run2.png")],
-  jump:img("sam_jump.png")
+  jump:img("sam_jump.png"),
+  dog:[img("dog1.png"),img("dog2.png")]
 };
 
-/* ================= OBJECTS ================= */
+/* ================= OGGETTI ================= */
 const ITEM_SCALE=0.75;
 const SPEED_SCALE=0.8;
 
 const OBJECTS=[
-  {type:"frisbee", img:img("frisbee.png"), pts:10, size:40*ITEM_SCALE, speed:200*SPEED_SCALE},
-  {type:"ball", img:img("ball.png"), pts:8, size:30*ITEM_SCALE, speed:220*SPEED_SCALE},
-  {type:"stick", img:img("stick.png"), pts:5, size:45*ITEM_SCALE, speed:190*SPEED_SCALE},
-  {type:"bone", img:img("bone.png"), special:"time", size:40*ITEM_SCALE, speed:210*SPEED_SCALE, chance:0.15},
-  {type:"caf", img:img("caffettiera.png"), pts:-15, size:55, speed:190*SPEED_SCALE, chance:0.15},
-  {type:"sec", img:img("secchio.png"), pts:-10, size:55, speed:190*SPEED_SCALE, chance:0.2}
+  {img:img("frisbee.png"),pts:10,size:40*ITEM_SCALE,speed:200*SPEED_SCALE},
+  {img:img("ball.png"),pts:8,size:30*ITEM_SCALE,speed:220*SPEED_SCALE},
+  {img:img("stick.png"),pts:5,size:45*ITEM_SCALE,speed:190*SPEED_SCALE},
+  {img:img("bone.png"),special:"time",size:40*ITEM_SCALE,speed:210*SPEED_SCALE,chance:0.15},
+  {img:img("caffettiera.png"),pts:-15,size:55,speed:190*SPEED_SCALE,chance:0.15},
+  {img:img("secchio.png"),pts:-10,size:55,speed:190*SPEED_SCALE,chance:0.2}
 ];
 
-/* ================= ITEMS ================= */
-let items=[];
-let spawnRate=1.1;
+let items=[],spawnRate=1.1;
 
-/* particelle */
+/* ================= PARTICELLE ================= */
 let particles=[];
 function spawnParticles(x,y,color){
   for(let i=0;i<8;i++){
@@ -242,20 +230,42 @@ function spawnParticles(x,y,color){
   }
 }
 
+/* ================= DOG ENEMY ================= */
+let dog=null;
+let dogAnim=0;
+let dogIndex=0;
+const MAX_DOG=4;
+
+const dogSpawnTimes=[
+  ...Array(MAX_DOG)
+].map(()=>Math.random()*120).sort((a,b)=>a-b);
+
+let warningIndex=0;
+const warningEl=document.getElementById("warning");
+
+function spawnDog(){
+  dog={
+    x:-120,
+    y:canvas.height-PH+10,
+    w:90,
+    h:70,
+    speed:240
+  };
+  dogAnim=0;
+}
+
 /* ================= UPDATE ================= */
 function update(dt){
   if(gameOver) return;
 
-  if(left) px-=380*dt;
-  if(right) px+=380*dt;
+  if(left)px-=380*dt;
+  if(right)px+=380*dt;
   px=Math.max(PW/2,Math.min(canvas.width-PW/2,px));
 
   if(!jumping) coyoteTime-=dt;
   if(jumpBuffer>0 && coyoteTime>0 && !jumping){
-    jumping=true;
-    vy=JUMP;
-    jumpBuffer=0;
-    coyoteTime=0;
+    jumping=true; vy=JUMP;
+    jumpBuffer=0; coyoteTime=0;
     sounds.jump.play().catch(()=>{});
   }
 
@@ -264,50 +274,68 @@ function update(dt){
     py+=vy*dt;
     if(py>=canvas.height-PH){
       py=canvas.height-PH;
-      vy=0;
-      jumping=false;
+      vy=0; jumping=false;
       coyoteTime=0.12;
     }
   }
 
+  // ===== ITEM SPAWN =====
   if(Math.random()<spawnRate*dt && items.length<4){
     let t;
     do{t=OBJECTS[Math.floor(Math.random()*OBJECTS.length)]}
     while(t.chance && Math.random()>t.chance);
-
-    items.push({
-      t,
-      x:Math.random()*canvas.width,
-      y:-40,
-      phase:Math.random()*Math.PI*2,
-      amp:t.type==="frisbee"?50:0,
-      freq:t.type==="frisbee"?2:0
-    });
+    items.push({t,x:Math.random()*canvas.width,y:-40});
   }
 
   items.forEach(o=>{
     o.y+=o.t.speed*dt;
-    o.phase+=o.freq*dt;
-    o.x+=Math.cos(o.phase)*o.amp*dt;
-
     if(Math.abs(o.x-px)<45 && Math.abs(o.y-(py+40))<45 && jumping){
-      if(o.t.special==="time"){
-        timeLeft+=5;
-        spawnParticles(o.x,o.y,"#4dd0ff");
-        sounds.collect.play().catch(()=>{});
-      }else{
-        score+=o.t.pts||0;
-        spawnParticles(o.x,o.y,o.t.pts<0?"#ff4d4d":"#ffe066");
-        if(o.t.pts<0) sounds.negative.play().catch(()=>{});
-        else sounds.collect.play().catch(()=>{});
-      }
-      shake=0.12;
+      score+=o.t.pts||0;
+      spawnParticles(o.x,o.y,o.t.pts<0?"#ff4d4d":"#ffe066");
+      sounds.collect.play().catch(()=>{});
       o.dead=true;
     }
   });
+  items=items.filter(o=>!o.dead && o.y<canvas.height+50);
 
-  items=items.filter(o=>!o.dead && o.y<canvas.height+60);
+  // ===== DOG WARNING & SPAWN =====
+  const elapsed=120-timeLeft;
+  if(
+    warningIndex<dogSpawnTimes.length &&
+    elapsed>dogSpawnTimes[warningIndex]-1.5
+  ){
+    warningEl.style.display="block";
+    sounds.warning.play().catch(()=>{});
+  }
 
+  if(
+    dogIndex<dogSpawnTimes.length &&
+    elapsed>dogSpawnTimes[dogIndex]
+  ){
+    warningEl.style.display="none";
+    spawnDog();
+    dogIndex++;
+    warningIndex++;
+  }
+
+  // ===== DOG UPDATE =====
+  if(dog){
+    dog.x+=dog.speed*dt;
+    dogAnim+=dt*8;
+
+    if(
+      !jumping &&
+      px+PW/2>dog.x &&
+      px-PW/2<dog.x+dog.w &&
+      py+PH>dog.y
+    ){
+      endGame();
+    }
+
+    if(dog.x>canvas.width+100) dog=null;
+  }
+
+  // ===== PARTICLES =====
   particles.forEach(p=>{
     p.vy+=600*dt;
     p.x+=p.vx*dt;
@@ -319,14 +347,13 @@ function update(dt){
 
 /* ================= DRAW ================= */
 function draw(){
-  ctx.save();
-  if(shake>0){
-    ctx.translate(Math.random()*6-3,Math.random()*6-3);
-    shake-=0.016;
-  }
   ctx.drawImage(IMG.bg,0,0,canvas.width,canvas.height);
 
-  let pImg=jumping?IMG.jump:(left||right?IMG.run[Math.floor(performance.now()/100)%2]:IMG.run[0]);
+  // Sam
+  let pImg= jumping
+    ? IMG.jump
+    : (left||right ? IMG.run[Math.floor(performance.now()/120)%2] : IMG.run[0]);
+
   ctx.save();
   if(!facingRight){
     ctx.translate(px,0); ctx.scale(-1,1);
@@ -336,10 +363,18 @@ function draw(){
   }
   ctx.restore();
 
+  // Oggetti
   items.forEach(o=>{
     ctx.drawImage(o.t.img,o.x-o.t.size/2,o.y-o.t.size/2,o.t.size,o.t.size);
   });
 
+  // Dog
+  if(dog){
+    const f=Math.floor(dogAnim)%2;
+    ctx.drawImage(IMG.dog[f],dog.x,dog.y,dog.w,dog.h);
+  }
+
+  // Particelle
   particles.forEach(p=>{
     ctx.fillStyle=p.color;
     ctx.beginPath();
@@ -347,14 +382,11 @@ function draw(){
     ctx.fill();
   });
 
-  ctx.restore();
-
   score=Math.max(0,score);
   highScore=Math.max(highScore,score);
-
-  document.getElementById("score").textContent="Score: "+score;
-  document.getElementById("high").textContent="High: "+highScore;
-  document.getElementById("timer").textContent="Time: "+timeLeft;
+  scoreEl.textContent="Score: "+score;
+  highEl.textContent="High: "+highScore;
+  timerEl.textContent="Time: "+timeLeft;
 }
 
 /* ================= GAME OVER ================= */
@@ -373,6 +405,10 @@ setInterval(()=>{
   timeLeft--;
   if(timeLeft<=0) endGame();
 },1000);
+
+const scoreEl=document.getElementById("score");
+const highEl=document.getElementById("high");
+const timerEl=document.getElementById("timer");
 
 function loop(t){
   const dt=Math.min((t-lastTime)/1000,0.05);
