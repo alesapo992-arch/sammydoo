@@ -14,8 +14,8 @@ body{
   font-family:Arial,sans-serif;
   text-align:center;
   overflow:hidden;
-  overscroll-behavior:none;
 }
+
 h1{margin:10px 0}
 
 #gameContainer{
@@ -37,26 +37,33 @@ canvas{
   justify-content:space-between;
   padding:6px;
 }
-
 .badge{
   background:rgba(0,0,0,.6);
   padding:6px 10px;
   border-radius:6px;
-  font-size:16px;
 }
 
-.floating{
+#gameOverScreen{
   position:absolute;
-  font-weight:bold;
-  pointer-events:none;
-  animation:float 1s forwards;
+  inset:0;
+  background:rgba(0,0,0,.85);
+  display:none;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  z-index:10;
 }
-.positive{color:#ffe066}
-.negative{color:#ff4d4d}
 
-@keyframes float{
-  from{opacity:1; transform:translateY(0)}
-  to{opacity:0; transform:translateY(-40px)}
+#gameOverScreen h2{
+  font-size:42px;
+  color:#ff4444;
+}
+
+button{
+  margin-top:20px;
+  padding:12px 24px;
+  font-size:18px;
+  cursor:pointer;
 }
 </style>
 </head>
@@ -65,15 +72,50 @@ canvas{
 <div id="gameContainer">
   <h1>🐶 SammyDoo Jump & Catch</h1>
   <canvas id="gameCanvas"></canvas>
+
   <div id="ui">
     <div id="score" class="badge">Score: 0</div>
     <div id="timer" class="badge">Time: 120</div>
     <div id="high" class="badge">High: 0</div>
   </div>
+
+  <div id="gameOverScreen">
+    <h2>GAME OVER</h2>
+    <button onclick="restartGame()">RESTART</button>
+  </div>
 </div>
 
 <script>
-// ================= CANVAS =================
+/* ================= AUDIO ================= */
+const sounds={
+  bg:new Audio("bg_music.mp3"),
+  collect:new Audio("collect.wav"),
+  jump:new Audio("jump.wav"),
+  negative:new Audio("negative.wav"),
+  miss:new Audio("miss.wav"),
+  gameOver:new Audio("game_over.wav")
+};
+
+sounds.bg.loop=true;
+sounds.bg.volume=0.08;
+sounds.collect.volume=0.9;
+sounds.jump.volume=0.9;
+sounds.negative.volume=1;
+sounds.miss.volume=0.8;
+sounds.gameOver.volume=1;
+
+let audioUnlocked=false;
+function unlockAudio(){
+  if(audioUnlocked) return;
+  audioUnlocked=true;
+  sounds.bg.play().catch(()=>{});
+}
+
+["touchstart","mousedown","keydown"].forEach(evt=>{
+  document.addEventListener(evt,unlockAudio,{once:true});
+});
+
+/* ================= CANVAS ================= */
 const canvas=document.getElementById("gameCanvas");
 const ctx=canvas.getContext("2d");
 
@@ -81,34 +123,33 @@ function resize(){
   canvas.width=Math.min(innerWidth,800);
   canvas.height=canvas.width*0.75;
 }
-resize(); addEventListener("resize",resize);
+resize();
+addEventListener("resize",resize);
 
-// ================= GAME STATE =================
+/* ================= GAME STATE ================= */
 let score=0;
-let timeLeft=120;
 let highScore=+localStorage.getItem("sammyHigh")||0;
+let timeLeft=120;
 let lastTime=performance.now();
+let gameOver=false;
 
-// ================= PLAYER =================
-const PW=80, PH=80;
-let px=canvas.width/2;
-let py=canvas.height-PH;
-let vy=0, jumping=false, facingRight=true;
+/* ================= PLAYER ================= */
+const PW=80,PH=80;
+let px=canvas.width/2,py=canvas.height-PH;
+let vy=0,jumping=false,facingRight=true;
 
-const GRAVITY=2600;
-const JUMP=-850;
+const GRAVITY=2600,JUMP=-850;
+let coyoteTime=0.12,jumpBuffer=0;
 
-let coyoteTime=0.12, jumpBuffer=0;
-
-// ================= INPUT =================
-let left=false, right=false;
+/* ================= INPUT ================= */
+let left=false,right=false;
 
 addEventListener("keydown",e=>{
-  if(e.key==="ArrowLeft"){left=true; facingRight=false}
-  if(e.key==="ArrowRight"){right=true; facingRight=true}
+  if(e.key==="ArrowLeft"){left=true;facingRight=false}
+  if(e.key==="ArrowRight"){right=true;facingRight=true}
   if(e.code==="Space"){
     jumpBuffer=0.15;
-    if(!jumping) coyoteTime=0.12;
+    if(!jumping)coyoteTime=0.12;
   }
 });
 addEventListener("keyup",e=>{
@@ -119,86 +160,47 @@ addEventListener("keyup",e=>{
 canvas.addEventListener("touchstart",e=>{
   e.preventDefault();
   const x=e.touches[0].clientX;
-  if(x<innerWidth/2){left=true; facingRight=false}
-  else{right=true; facingRight=true}
+  if(x<innerWidth/2){left=true;facingRight=false}
+  else{right=true;facingRight=true}
   jumpBuffer=0.15;
-  if(!jumping) coyoteTime=0.12;
+  if(!jumping)coyoteTime=0.12;
 },{passive:false});
 
-canvas.addEventListener("touchend",()=>{left=false; right=false},{passive:false});
+canvas.addEventListener("touchend",()=>{left=false;right=false},{passive:false});
 canvas.addEventListener("touchmove",e=>e.preventDefault(),{passive:false});
 
-// ================= IMAGES =================
-function img(s){const i=new Image(); i.src=s; return i;}
+/* ================= IMAGES ================= */
+function img(s){const i=new Image();i.src=s;return i;}
 const IMG={
   bg:img("park.png"),
   run:[img("sam_run1.png"),img("sam_run2.png")],
   jump:img("sam_jump.png")
 };
 
-// ================= OBJECTS =================
+/* ================= OBJECTS ================= */
 const ITEM_SCALE=0.75;
-const SPEED_SCALE=0.8; // ✅ CADONO PIÙ LENTAMENTE
+const SPEED_SCALE=0.8;
 
 const OBJECTS=[
-  {img:img("frisbee.png"), pts:10, size:40*ITEM_SCALE, speed:200*SPEED_SCALE},
-  {img:img("ball.png"), pts:8,  size:30*ITEM_SCALE, speed:220*SPEED_SCALE},
-  {img:img("stick.png"), pts:5, size:45*ITEM_SCALE, speed:190*SPEED_SCALE},
-
-  {img:img("bone.png"), special:"time", size:40*ITEM_SCALE, speed:210*SPEED_SCALE, chance:0.15},
-
-  // NEGATIVI (PIÙ GRANDI)
-  {img:img("caffettiera.png"), pts:-15, size:55, speed:190*SPEED_SCALE, chance:0.15},
-  {img:img("secchio.png"),     pts:-10, size:55, speed:190*SPEED_SCALE, chance:0.2}
+  {img:img("frisbee.png"),pts:10,size:40*ITEM_SCALE,speed:200*SPEED_SCALE},
+  {img:img("ball.png"),pts:8,size:30*ITEM_SCALE,speed:220*SPEED_SCALE},
+  {img:img("stick.png"),pts:5,size:45*ITEM_SCALE,speed:190*SPEED_SCALE},
+  {img:img("bone.png"),special:"time",size:40*ITEM_SCALE,speed:210*SPEED_SCALE, chance:0.15},
+  {img:img("caffettiera.png"),pts:-15,size:55,speed:190*SPEED_SCALE, chance:0.15},
+  {img:img("secchio.png"),pts:-10,size:55,speed:190*SPEED_SCALE, chance:0.2}
 ];
 
-// ================= AUDIO =================
-const sounds={
-  bg:new Audio("bg_music.mp3"),
-  collect:new Audio("collect.wav"),
-  jump:new Audio("jump.wav"),
-  negative:new Audio("negative.wav"),
-  miss:new Audio("miss.wav")
-};
+let items=[],spawnRate=1.1;
 
-sounds.bg.loop=true;
-sounds.bg.volume=0.1;       // ✅ musica bassa
-sounds.collect.volume=0.9;
-sounds.jump.volume=0.9;
-sounds.negative.volume=1;
-sounds.miss.volume=0.8;
-
-let audioUnlocked=false;
-addEventListener("touchstart",()=>{
-  if(!audioUnlocked){
-    audioUnlocked=true;
-    sounds.bg.play().catch(()=>{});
-  }
-},{once:true});
-
-// ================= ITEMS =================
-let items=[];
-let spawnRate=1.1;
-
-function floatText(txt,x,y,neg=false){
-  const d=document.createElement("div");
-  d.className="floating "+(neg?"negative":"positive");
-  d.textContent=txt;
-  d.style.left=(canvas.offsetLeft+x)+"px";
-  d.style.top=(canvas.offsetTop+y)+"px";
-  document.body.appendChild(d);
-  setTimeout(()=>d.remove(),1000);
-}
-
-// ================= UPDATE =================
-let anim=0;
-
+/* ================= UPDATE ================= */
 function update(dt){
+  if(gameOver) return;
+
   if(left)px-=380*dt;
   if(right)px+=380*dt;
   px=Math.max(PW/2,Math.min(canvas.width-PW/2,px));
 
-  if(!jumping) coyoteTime-=dt;
+  if(!jumping)coyoteTime-=dt;
   if(jumpBuffer>0 && coyoteTime>0 && !jumping){
     jumping=true;
     vy=JUMP;
@@ -217,69 +219,42 @@ function update(dt){
       coyoteTime=0.12;
     }
   }
-  jumpBuffer=Math.max(0,jumpBuffer-dt);
 
   if(Math.random()<spawnRate*dt && items.length<4){
     let t;
-    do{
-      t=OBJECTS[Math.floor(Math.random()*OBJECTS.length)];
-    }while(t.chance && Math.random()>t.chance);
-    items.push({t,x:Math.random()*canvas.width,y:-40,taken:false});
+    do{t=OBJECTS[Math.floor(Math.random()*OBJECTS.length)]}
+    while(t.chance && Math.random()>t.chance);
+    items.push({t,x:Math.random()*canvas.width,y:-40});
   }
 
   items.forEach(o=>{
     o.y+=o.t.speed*dt;
 
-    // ❌ OGGETTO PERSO → penalità (NON per negativi)
-    if(o.y>canvas.height && !o.taken){
-      if(o.t.pts>0){
-        score-=5;
-        sounds.miss.play().catch(()=>{});
-        floatText("-5",px,py,true);
-      }
-      o.dead=true;
-    }
-
     if(Math.abs(o.x-px)<45 && Math.abs(o.y-(py+40))<45 && jumping){
-      o.taken=true;
-      if(o.t.special==="time"){
-        timeLeft+=5;
-        floatText("+5s",o.x,o.y);
-        sounds.collect.play().catch(()=>{});
-      }else{
-        score+=o.t.pts||0;
-        if(o.t.pts<0){
-          floatText(o.t.pts,o.x,o.y,true);
-          sounds.negative.play().catch(()=>{});
-        }else{
-          floatText("+"+o.t.pts,o.x,o.y);
-          sounds.collect.play().catch(()=>{});
-        }
-      }
+      if(o.t.special==="time"){timeLeft+=5; sounds.collect.play().catch(()=>{})}
+      else if(o.t.pts<0){score+=o.t.pts; sounds.negative.play().catch(()=>{})}
+      else{score+=o.t.pts; sounds.collect.play().catch(()=>{})}
       o.dead=true;
     }
   });
 
-  items=items.filter(o=>!o.dead);
-  anim+=dt*10;
+  items=items.filter(o=>!o.dead && o.y<canvas.height+60);
 }
 
-// ================= DRAW =================
+/* ================= DRAW ================= */
 function draw(){
   ctx.drawImage(IMG.bg,0,0,canvas.width,canvas.height);
 
   let pImg;
   if(jumping)pImg=IMG.jump;
-  else if(left||right)pImg=IMG.run[Math.floor(anim)%2];
+  else if(left||right)pImg=IMG.run[Math.floor(performance.now()/100)%2];
   else pImg=IMG.run[0];
 
   ctx.save();
   if(!facingRight){
-    ctx.translate(px,0); ctx.scale(-1,1);
+    ctx.translate(px,0);ctx.scale(-1,1);
     ctx.drawImage(pImg,-PW/2,py,PW,PH);
-  }else{
-    ctx.drawImage(pImg,px-PW/2,py,PW,PH);
-  }
+  }else ctx.drawImage(pImg,px-PW/2,py,PW,PH);
   ctx.restore();
 
   items.forEach(o=>{
@@ -294,18 +269,29 @@ function draw(){
   timerEl.textContent="Time: "+timeLeft;
 }
 
-// ================= LOOP =================
+/* ================= GAME OVER ================= */
+function endGame(){
+  gameOver=true;
+  sounds.bg.pause();
+  sounds.gameOver.play().catch(()=>{});
+  localStorage.setItem("sammyHigh",highScore);
+  document.getElementById("gameOverScreen").style.display="flex";
+}
+
+function restartGame(){
+  location.reload();
+}
+
+/* ================= LOOP ================= */
 setInterval(()=>{
+  if(gameOver) return;
   timeLeft--;
-  if(timeLeft<=0){
-    localStorage.setItem("sammyHigh",highScore);
-    location.reload();
-  }
+  if(timeLeft<=0) endGame();
 },1000);
 
 const scoreEl=document.getElementById("score");
-const highEl=document.getElementById("high");
 const timerEl=document.getElementById("timer");
+const highEl=document.getElementById("high");
 
 function loop(t){
   const dt=Math.min((t-lastTime)/1000,0.05);
