@@ -1,60 +1,76 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SammyDoo Jump & Catch</title>
+<title>SammyDoo - Jump & Catch!</title>
 
 <style>
 body {
-  margin: 0;
-  background: #111;
+  background: #222;
   color: #fff;
   font-family: Arial, sans-serif;
+  margin: 0;
   text-align: center;
   overflow: hidden;
 }
 
-h1 { margin: 10px 0; }
-
-#gameCanvas {
+#gameContainer {
   max-width: 800px;
-  width: 100%;
+  margin: auto;
+  position: relative;
+}
+
+canvas {
   background: #87CEEB;
-  touch-action: none;
+  width: 100%;
+  aspect-ratio: 4 / 3;
 }
 
 #ui {
   display: flex;
   justify-content: space-between;
-  max-width: 800px;
-  margin: auto;
   padding: 5px;
   font-size: 18px;
 }
 
 .badge {
   background: rgba(0,0,0,0.6);
-  padding: 6px 12px;
+  padding: 6px 10px;
   border-radius: 6px;
+}
+
+.floatingText {
+  position: absolute;
+  pointer-events: none;
+  color: yellow;
+  font-weight: bold;
+  animation: floatUp 1s forwards;
+}
+
+@keyframes floatUp {
+  from { opacity:1; transform: translateY(0); }
+  to { opacity:0; transform: translateY(-40px); }
 }
 </style>
 </head>
 
 <body>
-
+<div id="gameContainer">
 <h1>🐶 SammyDoo Jump & Catch</h1>
-
 <canvas id="gameCanvas"></canvas>
 
 <div id="ui">
-  <div class="badge" id="score">Score: 0</div>
-  <div class="badge" id="timer">Time: 120</div>
-  <div class="badge" id="status"></div>
+  <div id="score" class="badge">Score: 0</div>
+  <div id="timer" class="badge">Time: 120</div>
+  <div id="highScore" class="badge">High Score: 0</div>
+</div>
 </div>
 
 <script>
-/* ===================== SETUP ===================== */
+/* =====================================================
+   BASIC SETUP
+===================================================== */
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
@@ -65,179 +81,225 @@ function resize() {
 resize();
 window.addEventListener('resize', resize);
 
+/* =====================================================
+   GAME STATE
+===================================================== */
 let score = 0;
+let highScore = +localStorage.getItem('sammyHigh') || 0;
 let timeLeft = 120;
-let gameStarted = true;
+let lastTime = performance.now();
+let shakeTime = 0;
 
-/* ===================== PLAYER ===================== */
-const player = {
-  x: canvas.width / 2,
-  y: canvas.height - 80,
-  w: 80,
-  h: 80,
-  vy: 0,
-  jumping: false
-};
+/* =====================================================
+   PLAYER
+===================================================== */
+const playerW = 80;
+const playerH = 80;
+let playerX = canvas.width / 2;
+let playerY = canvas.height - playerH;
+
+let jumpVelocity = 0;
+let playerJumping = false;
 
 const gravity = 2400;
 const jumpPower = -1200;
 
-/* Jump forgiving */
+// jump forgiveness
 let coyoteTime = 0;
 let jumpBuffer = 0;
+const COYOTE = 0.12;
+const JUMP_BUFFER = 0.15;
 
-/* ===================== POWER UPS ===================== */
-let scoreMultiplier = 1;
-let multiplierTimer = 0;
+/* =====================================================
+   INPUT
+===================================================== */
+const keys = { left:false, right:false };
+let touchLeft = false;
+let touchRight = false;
 
-/* ===================== DIFFICULTY ===================== */
-let spawnRate = 1.5;
+// keyboard
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') keys.left = true;
+  if (e.key === 'ArrowRight') keys.right = true;
+  if (e.code === 'Space') jumpBuffer = JUMP_BUFFER;
+});
+document.addEventListener('keyup', e => {
+  if (e.key === 'ArrowLeft') keys.left = false;
+  if (e.key === 'ArrowRight') keys.right = false;
+});
 
-/* ===================== ITEMS ===================== */
-const itemTypes = [
-  {name:'Frisbee', pts:10, size:40, speed:220},
-  {name:'Ball', pts:8, size:30, speed:250},
-  {name:'Stick', pts:5, size:50, speed:200},
-  {name:'Star', pts:0, special:'x2'},
-  {name:'Bone', pts:0, special:'time'},
-  {name:'Bomb', pts:-10, special:'bomb'}
-];
-
-let items = [];
-
-/* ===================== INPUT (SIMPLIFIED TOUCH) ===================== */
-let touchDir = 0;
-
+// simplified touch (canvas)
 canvas.addEventListener('touchstart', e => {
   const x = e.touches[0].clientX;
-  touchDir = x < window.innerWidth / 2 ? -1 : 1;
-  jumpBuffer = 0.15;
+  if (x < window.innerWidth / 2) touchLeft = true;
+  else touchRight = true;
+  jumpBuffer = JUMP_BUFFER;
+});
+canvas.addEventListener('touchend', () => {
+  touchLeft = false;
+  touchRight = false;
 });
 
-canvas.addEventListener('touchend', () => touchDir = 0);
+/* =====================================================
+   IMAGES
+===================================================== */
+const images = {};
+function load(src) {
+  const i = new Image();
+  i.src = src;
+  return i;
+}
 
-/* Desktop */
-document.addEventListener('keydown', e => {
-  if (e.code === 'Space') jumpBuffer = 0.15;
-  if (e.key === 'ArrowLeft') touchDir = -1;
-  if (e.key === 'ArrowRight') touchDir = 1;
-});
+images.bg = load('park.png');
+images.run1 = load('sam_run1.png');
+images.run2 = load('sam_run2.png');
+images.jump = load('sam_jump.png');
 
-document.addEventListener('keyup', () => touchDir = 0);
+const objectTypes = [
+  {name:'Frisbee', img:load('frisbee.png'), pts:10, size:40, speed:220},
+  {name:'Ball', img:load('ball.png'), pts:8, size:30, speed:250},
+  {name:'Stick', img:load('stick.png'), pts:5, size:45, speed:200},
+  {name:'Star', img:load('star.png'), special:'x2', size:40, speed:240},
+  {name:'Bone', img:load('bone.png'), special:'time', size:40, speed:240}
+];
 
-/* ===================== GAME LOOP ===================== */
-let lastTime = performance.now();
+/* =====================================================
+   ITEMS
+===================================================== */
+let items = [];
+let spawnRate = 1.8;
+
+/* power up */
+let multiplier = 1;
+let multiplierTimer = 0;
+
+/* =====================================================
+   UTILS
+===================================================== */
+function floatingText(text, x, y) {
+  const el = document.createElement('div');
+  el.className = 'floatingText';
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+  el.textContent = text;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1000);
+}
+
+/* =====================================================
+   GAME LOOP
+===================================================== */
+function update(dt) {
+
+  spawnRate += dt * 0.02;
+
+  // movement
+  if (keys.left || touchLeft) playerX -= 400 * dt;
+  if (keys.right || touchRight) playerX += 400 * dt;
+  playerX = Math.max(playerW/2, Math.min(canvas.width-playerW/2, playerX));
+
+  // jump
+  if (!playerJumping) coyoteTime -= dt;
+  if (jumpBuffer > 0 && coyoteTime > 0 && !playerJumping) {
+    playerJumping = true;
+    jumpVelocity = jumpPower;
+    jumpBuffer = 0;
+    coyoteTime = 0;
+  }
+
+  if (playerJumping) {
+    jumpVelocity += gravity * dt;
+    playerY += jumpVelocity * dt;
+    if (playerY >= canvas.height - playerH) {
+      playerY = canvas.height - playerH;
+      playerJumping = false;
+      jumpVelocity = 0;
+      coyoteTime = COYOTE;
+    }
+  }
+
+  if (jumpBuffer > 0) jumpBuffer -= dt;
+
+  // items spawn
+  if (Math.random() < spawnRate * dt && items.length < 6) {
+    const t = objectTypes[Math.floor(Math.random()*objectTypes.length)];
+    items.push({t, x:Math.random()*(canvas.width-40)+20, y:-40});
+  }
+
+  items.forEach(o => {
+    o.y += (o.t.speed + spawnRate*10) * dt;
+
+    if (Math.abs(o.x-playerX)<50 && Math.abs(o.y-(playerY+40))<50 && playerJumping) {
+      if (o.t.special === 'x2') {
+        multiplier = 2;
+        multiplierTimer = 5;
+        floatingText('x2!', o.x, o.y);
+      } else if (o.t.special === 'time') {
+        timeLeft += 5;
+        floatingText('+5s', o.x, o.y);
+      } else {
+        score += o.t.pts * multiplier;
+        floatingText('+'+(o.t.pts*multiplier), o.x, o.y);
+      }
+      shakeTime = 0.15;
+      o.dead = true;
+    }
+  });
+
+  items = items.filter(o => !o.dead && o.y < canvas.height+50);
+
+  if (multiplierTimer > 0) {
+    multiplierTimer -= dt;
+    if (multiplierTimer <= 0) multiplier = 1;
+  }
+}
+
+function draw() {
+  ctx.save();
+  if (shakeTime > 0) {
+    ctx.translate(Math.random()*6-3, Math.random()*6-3);
+    shakeTime -= 0.016;
+  }
+
+  ctx.drawImage(images.bg, 0, 0, canvas.width, canvas.height);
+
+  // player
+  const img = playerJumping ? images.jump : images.run1;
+  ctx.drawImage(img, playerX-playerW/2, playerY, playerW, playerH);
+
+  // items
+  items.forEach(o => ctx.drawImage(o.t.img, o.x-20, o.y-20, 40, 40));
+
+  ctx.restore();
+}
 
 function loop(t) {
-  const dt = Math.min((t - lastTime) / 1000, 0.05);
+  const dt = Math.min((t-lastTime)/1000,0.05);
   lastTime = t;
 
   update(dt);
   draw();
 
+  document.getElementById('score').textContent = 'Score: ' + score;
+  document.getElementById('timer').textContent = 'Time: ' + timeLeft;
+  document.getElementById('highScore').textContent = 'High Score: ' + highScore;
+
   requestAnimationFrame(loop);
 }
 
-function update(dt) {
-  /* Difficulty */
-  spawnRate += dt * 0.01;
-
-  /* Player move */
-  player.x += touchDir * 350 * dt;
-  player.x = Math.max(player.w/2, Math.min(canvas.width - player.w/2, player.x));
-
-  /* Jump logic */
-  if (coyoteTime > 0 && jumpBuffer > 0 && !player.jumping) {
-    player.vy = jumpPower;
-    player.jumping = true;
-    jumpBuffer = 0;
-  }
-
-  if (player.jumping) {
-    player.vy += gravity * dt;
-    player.y += player.vy * dt;
-    if (player.y >= canvas.height - player.h) {
-      player.y = canvas.height - player.h;
-      player.jumping = false;
-      coyoteTime = 0.1;
-    }
-  } else {
-    coyoteTime -= dt;
-  }
-
-  jumpBuffer -= dt;
-
-  /* Items */
-  if (Math.random() < spawnRate * dt && items.length < 6) {
-    const t = itemTypes[Math.floor(Math.random()*itemTypes.length)];
-    items.push({
-      type: t,
-      x: Math.random()*(canvas.width-40)+20,
-      y: -40,
-      speed: t.speed || 240
-    });
-  }
-
-  items.forEach(i => {
-    i.y += (i.speed + spawnRate*20) * dt;
-    if (Math.abs(i.x - player.x) < 50 && Math.abs(i.y - (player.y+40)) < 50) {
-      collect(i);
-      i.dead = true;
-    }
-  });
-
-  items = items.filter(i => !i.dead && i.y < canvas.height+50);
-
-  /* Multiplier */
-  if (multiplierTimer > 0) {
-    multiplierTimer -= dt;
-    if (multiplierTimer <= 0) scoreMultiplier = 1;
-  }
-}
-
-function collect(i) {
-  if (i.type.special === 'x2') {
-    scoreMultiplier = 2;
-    multiplierTimer = 5;
-    document.getElementById('status').textContent = '⭐ x2!';
-  } else if (i.type.special === 'time') {
-    timeLeft += 5;
-    document.getElementById('status').textContent = '🦴 +5s';
-  } else if (i.type.special === 'bomb') {
-    score = Math.max(0, score - 10);
-    document.getElementById('status').textContent = '💣 -10';
-  } else {
-    score += i.type.pts * scoreMultiplier;
-  }
-  document.getElementById('score').textContent = 'Score: ' + score;
-}
-
-/* ===================== DRAW ===================== */
-function draw() {
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-
-  /* Player */
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(player.x - player.w/2, player.y, player.w, player.h);
-
-  /* Items */
-  ctx.fillStyle = '#FFD700';
-  items.forEach(i => {
-    ctx.beginPath();
-    ctx.arc(i.x, i.y, 20, 0, Math.PI*2);
-    ctx.fill();
-  });
-}
-
-/* ===================== TIMER ===================== */
-setInterval(() => {
+setInterval(()=>{
   timeLeft--;
-  document.getElementById('timer').textContent = 'Time: ' + timeLeft;
-}, 1000);
+  if (timeLeft <= 0) {
+    if (score > highScore) {
+      highScore = score;
+      localStorage.setItem('sammyHigh', highScore);
+    }
+    location.reload();
+  }
+},1000);
 
 requestAnimationFrame(loop);
 </script>
-
 </body>
 </html>
 
