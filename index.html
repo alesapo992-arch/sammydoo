@@ -39,6 +39,23 @@ canvas{
   background:rgba(0,0,0,.6);
   padding:6px 10px;
   border-radius:6px;
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
+#healthBarBg{
+  width:60px;
+  height:10px;
+  background:rgba(0,0,0,0.7);
+  border-radius:4px;
+  overflow:hidden;
+}
+#healthBar{
+  height:100%;
+  background:linear-gradient(90deg, #ff4444 0%, #ffaa44 50%, #4dff4d 100%);
+  border-radius:4px;
+  width:100%;
+  transition:width 0.3s ease;
 }
 
 #gameOverScreen{
@@ -64,9 +81,10 @@ button{
 #warning{
   position:absolute;
   top:50%;
-  left:20px;
+  left:50%;
   width:60px;
   height:60px;
+  transform:translate(-50%, -50%);
   display:none;
   animation:blink 0.4s infinite;
   z-index:9;
@@ -77,8 +95,6 @@ button{
   50%{opacity:.2}
   100%{opacity:1}
 }
-
-/* particelle */
 </style>
 </head>
 
@@ -90,7 +106,12 @@ button{
 
   <div id="ui">
     <div id="score" class="badge">Score: 0</div>
-    <div id="timer" class="badge">Time: 120</div>
+    <div id="health" class="badge">
+      Health: 
+      <div id="healthBarBg">
+        <div id="healthBar"></div>
+      </div>
+    </div>
     <div id="high" class="badge">High: 0</div>
   </div>
 
@@ -110,7 +131,7 @@ const sounds={
   miss:new Audio("miss.wav"),
   gameOver:new Audio("game_over.wav"),
   warning:new Audio("dog_warning.wav"),
-  bonus:new Audio("bonus.wav")  // Aggiungi un suono per bonus
+  bite:new Audio("bite.wav")  // Suono per morso
 };
 sounds.bg.loop=true;
 sounds.bg.volume=0.07;
@@ -120,7 +141,7 @@ sounds.negative.volume=1;
 sounds.miss.volume=0.8;
 sounds.gameOver.volume=1;
 sounds.warning.volume=0.7;
-sounds.bonus = sounds.bonus || sounds.collect;  // Fallback se non hai il file
+sounds.bite = sounds.bite || sounds.negative;  // Fallback
 
 let audioUnlocked=false;
 function unlockAudio(){
@@ -145,11 +166,12 @@ resize(); addEventListener("resize",resize);
 /* ================= GAME STATE ================= */
 let score=0;
 let highScore=+localStorage.getItem("sammyHigh")||0;
-let timeLeft=120;
+let health=100;
+let gameStartTime=performance.now();
 let lastTime=performance.now();
 let gameOver=false;
 let shake=0;
-let combo=0;  // Nuovo: combo counter
+let combo=0;
 
 /* ================= PLAYER ================= */
 const PW=80,PH=80;
@@ -162,7 +184,7 @@ const JUMP=-850;
 let coyoteTime=0.12;
 let jumpBuffer=0;
 
-/* ================= INPUT (SWIPE + KEYBOARD) ================= */
+/* ================= INPUT ================= */
 let left=false,right=false;
 let touchSX=0,touchSY=0;
 const SWIPE_THRESHOLD=35;
@@ -194,7 +216,7 @@ canvas.addEventListener("touchend",e=>{
   }
 },{passive:false});
 
-// Keyboard controls
+// Keyboard
 document.addEventListener("keydown",e=>{
   if(e.key==="ArrowLeft"){left=true; facingRight=false;}
   if(e.key==="ArrowRight"){right=true; facingRight=true;}
@@ -217,18 +239,20 @@ const IMG={
 /* ================= OGGETTI ================= */
 const ITEM_SCALE=0.75;
 const SPEED_SCALE=0.8;
+const MISS_DAMAGE=15;  // Danno per oggetto positivo non preso
+const NEGATIVE_DAMAGE=8;  // Danno extra per negativi presi
 
 const OBJECTS=[
   {img:img("frisbee.png"),pts:10,size:40*ITEM_SCALE,speed:200*SPEED_SCALE},
   {img:img("ball.png"),pts:8,size:30*ITEM_SCALE,speed:220*SPEED_SCALE},
   {img:img("stick.png"),pts:5,size:45*ITEM_SCALE,speed:190*SPEED_SCALE},
-  {img:img("bone.png"),special:"time",size:40*ITEM_SCALE,speed:210*SPEED_SCALE,chance:0.15},
+  {img:img("bone.png"),special:"time",pts:0,size:40*ITEM_SCALE,speed:210*SPEED_SCALE,chance:0.15},
   {img:img("caffettiera.png"),pts:-15,size:55,speed:190*SPEED_SCALE,chance:0.15},
   {img:img("secchio.png"),pts:-10,size:55,speed:190*SPEED_SCALE,chance:0.2}
 ];
 
 let items=[],spawnRate=1.1;
-let difficultyLevel=1;  // Nuovo: per progressione
+let difficultyLevel=1;
 
 /* ================= PARTICELLE ================= */
 let particles=[];
@@ -247,43 +271,46 @@ function spawnParticles(x,y,color,count=8){
 /* ================= DOG ENEMY ================= */
 let dog=null;
 let dogAnim=0;
-let dogIndex=0;
-const MAX_DOG=4;
-
-const dogSpawnTimes=[
-  ...Array(MAX_DOG)
-].map(()=>Math.random()*120).sort((a,b)=>a-b);
-
-let warningIndex=0;
+let dogSpawnTimer=0;
+const DOG_SPAWN_INTERVAL=25;  // Spawn cane ogni ~25s, aumenta con diff
+const DOG_DAMAGE=30;
 const warningEl=document.getElementById("warning");
 
 function spawnDog(){
+  const fromRight = Math.random() < 0.5;
   dog={
-    x:-120,
+    x: fromRight ? canvas.width + 120 : -120,
     y:canvas.height-PH+10,
     w:90,
     h:70,
-    speed:240 * difficultyLevel
+    speed: (fromRight ? -1 : 1) * (240 + difficultyLevel*20),
+    dir: fromRight ? 'right' : 'left'
   };
   dogAnim=0;
+  // Warning breve
+  warningEl.style.display="block";
+  setTimeout(()=>{warningEl.style.display="none";}, 1500);
+  sounds.warning.play().catch(()=>{});
 }
 
 /* ================= UPDATE ================= */
 function update(dt){
   if(gameOver) return;
 
+  // Player movement
   if(left)px-=380*dt;
   if(right)px+=380*dt;
   px=Math.max(PW/2,Math.min(canvas.width-PW/2,px));
 
+  // Jump logic
   if(!jumping) coyoteTime-=dt;
+  jumpBuffer=Math.max(0, jumpBuffer-dt);
   if(jumpBuffer>0 && coyoteTime>0 && !jumping){
     jumping=true; vy=JUMP;
     jumpBuffer=0; coyoteTime=0;
     sounds.jump.play().catch(()=>{});
-    combo=0;  // Reset combo on jump
+    combo=0;
   }
-  jumpBuffer-=dt;
 
   if(jumping){
     vy+=GRAVITY*dt;
@@ -295,92 +322,91 @@ function update(dt){
     }
   }
 
-  // ===== PROGRESSIONE DIFFICOLTA' =====
-  if(timeLeft % 30 === 0 && timeLeft < 120) {
-    spawnRate += 0.2;
-    difficultyLevel += 0.1;
-  }
+  // Difficulty progression (basata su score)
+  spawnRate = 1.1 + Math.floor(score / 500) * 0.3;
+  difficultyLevel = 1 + Math.floor(score / 1000) * 0.2;
 
-  // ===== ITEM SPAWN =====
-  if(Math.random()<spawnRate*dt && items.length<4){
+  // Item spawn
+  if(Math.random()<spawnRate*dt && items.length<5){
     let t;
     do{t=OBJECTS[Math.floor(Math.random()*OBJECTS.length)]}
     while(t.chance && Math.random()>t.chance);
     items.push({t,x:Math.random()*canvas.width,y:-40, rotation:0});
   }
 
+  // Items update
   items.forEach(o=>{
     o.y += o.t.speed * difficultyLevel * dt;
-    o.rotation += 2 * dt;  // Rotazione oggetti
+    o.rotation += 3 * dt;  // Rotazione più veloce
 
+    // Collect
     if(Math.abs(o.x-px)<45 && Math.abs(o.y-(py+40))<45 && jumping){
       let pts = o.t.pts || 0;
       combo++;
-      if(combo >= 3) pts *= 1.5;  // Combo bonus
+      if(combo >= 3) pts *= 1.5;
       score += pts;
 
       if(o.t.special === "time"){
-        timeLeft += 10;
-        spawnParticles(o.x, o.y, "#00ff00", 12);  // Particelle verdi
-        sounds.bonus.play().catch(()=>{});
+        score += 20;  // Bonus punti per time
+        spawnParticles(o.x, o.y, "#00ff88", 15);
+        sounds.collect.play().catch(()=>{});
       } else if(pts < 0){
-        shake = 0.3;  // Shake on negative
+        health -= NEGATIVE_DAMAGE;
+        shake = 0.4;
+        spawnParticles(o.x, o.y, "#ff4d4d", 12);
         sounds.negative.play().catch(()=>{});
-        spawnParticles(o.x, o.y, "#ff4d4d");
       } else {
         spawnParticles(o.x, o.y, "#ffe066");
         sounds.collect.play().catch(()=>{});
       }
       o.dead=true;
     }
+  });
 
-    // Miss penalty for positive items
-    if(o.y > canvas.height + 50 && !o.dead && o.t.pts > 0){
-      timeLeft -= 2;
+  // Miss penalty per positivi
+  items.forEach(o=>{
+    if(o.y > canvas.height + 50 && !o.dead && (o.t.pts > 0 || o.t.special === "time")){
+      health -= MISS_DAMAGE;
+      shake = 0.2;
       sounds.miss.play().catch(()=>{});
+      spawnParticles(o.x, canvas.height, "#ffaa44");
+      o.dead=true;  // Rimuovi
     }
   });
-  items=items.filter(o=>!o.dead && o.y<canvas.height+50);
+  items=items.filter(o=>!o.dead && o.y<canvas.height+100);
 
-  // ===== DOG WARNING & SPAWN =====
-  const elapsed=120-timeLeft;
-  if(
-    warningIndex<dogSpawnTimes.length &&
-    elapsed>dogSpawnTimes[warningIndex]-1.5
-  ){
-    warningEl.style.display="block";
-    sounds.warning.play().catch(()=>{});
-  }
-
-  if(
-    dogIndex<dogSpawnTimes.length &&
-    elapsed>dogSpawnTimes[dogIndex]
-  ){
-    warningEl.style.display="none";
+  // Dog spawn (endless, basato su timer)
+  dogSpawnTimer += dt;
+  if(!dog && dogSpawnTimer > DOG_SPAWN_INTERVAL / difficultyLevel){
     spawnDog();
-    dogIndex++;
-    warningIndex++;
+    dogSpawnTimer=0;
   }
 
-  // ===== DOG UPDATE =====
+  // Dog update
   if(dog){
-    dog.x+=dog.speed*dt;
-    dogAnim+=dt*8;
+    dog.x += dog.speed * dt;
+    dogAnim += dt * 10;
 
-    if(
-      !jumping &&
-      px+PW/2>dog.x &&
-      px-PW/2<dog.x+dog.w &&
-      py+PH>dog.y
-    ){
-      shake = 0.5;  // Shake on collision
-      endGame();
+    // Collision (solo a terra)
+    if(!jumping &&
+       px + PW/2 > dog.x &&
+       px - PW/2 < dog.x + dog.w &&
+       py + PH > dog.y){
+      health -= DOG_DAMAGE;
+      shake = 0.6;
+      sounds.bite.play().catch(()=>{});
+      spawnParticles(px, py + PH, "#ff2222", 20);
+      dog = null;  // Rimuovi cane dopo morso
+      dogSpawnTimer = 0;  // Reset spawn
     }
 
-    if(dog.x>canvas.width+100) dog=null;
+    if((dog.dir === 'left' && dog.x > canvas.width + 100) ||
+       (dog.dir === 'right' && dog.x < -100)){
+      dog=null;
+    }
   }
 
-  // ===== PARTICLES =====
+  // Particles
   particles.forEach(p=>{
     p.vy+=600*dt;
     p.x+=p.vx*dt;
@@ -389,34 +415,46 @@ function update(dt){
   });
   particles=particles.filter(p=>p.life>0);
 
-  // ===== SHAKE =====
-  if(shake > 0) shake -= dt;
+  // Shake decay
+  shake = Math.max(0, shake - dt);
+
+  // Health check
+  health = Math.max(0, health);
+  if(health <= 0) endGame();
+
+  // UI update
+  scoreEl.textContent="Score: "+Math.floor(score);
+  highScore=Math.max(highScore,score);
+  highEl.textContent="High: "+Math.floor(highScore);
+  document.getElementById("healthBar").style.width = Math.max(0, (health/100)*100) + "%";
 }
 
 /* ================= DRAW ================= */
 function draw(){
   ctx.save();
   if(shake > 0){
-    const offset = shake * 10;
-    ctx.translate((Math.random() - 0.5) * offset, (Math.random() - 0.5) * offset);
+    const s = shake * 15 * (Math.random()*2-1);
+    ctx.translate(s, s);
   }
+
   ctx.drawImage(IMG.bg,0,0,canvas.width,canvas.height);
 
-  // Sam
+  // Player
   let pImg= jumping
     ? IMG.jump
     : (left||right ? IMG.run[Math.floor(performance.now()/120)%2] : IMG.run[0]);
 
   ctx.save();
   if(!facingRight){
-    ctx.translate(px,0); ctx.scale(-1,1);
-    ctx.drawImage(pImg,-PW/2,py,PW,PH);
+    ctx.translate(px, py + PH/2);
+    ctx.scale(-1,1);
+    ctx.drawImage(pImg, -PW/2, -PH/2, PW, PH);
   }else{
-    ctx.drawImage(pImg,px-PW/2,py,PW,PH);
+    ctx.drawImage(pImg, px-PW/2, py, PW, PH);
   }
   ctx.restore();
 
-  // Oggetti con rotazione
+  // Items
   items.forEach(o=>{
     ctx.save();
     ctx.translate(o.x, o.y);
@@ -425,27 +463,29 @@ function draw(){
     ctx.restore();
   });
 
-  // Dog
+  // Dog (specchiato se da right)
   if(dog){
     const f=Math.floor(dogAnim)%2;
-    ctx.drawImage(IMG.dog[f],dog.x,dog.y,dog.w,dog.h);
+    ctx.save();
+    if(dog.dir === 'right'){
+      ctx.translate(dog.x + dog.w/2, dog.y + dog.h/2);
+      ctx.scale(-1,1);
+      ctx.drawImage(IMG.dog[f], -dog.w/2, -dog.h/2, dog.w, dog.h);
+    } else {
+      ctx.drawImage(IMG.dog[f], dog.x, dog.y, dog.w, dog.h);
+    }
+    ctx.restore();
   }
 
-  // Particelle
+  // Particles
   particles.forEach(p=>{
     ctx.fillStyle=p.color;
     ctx.beginPath();
-    ctx.arc(p.x,p.y,3,0,Math.PI*2);
+    ctx.arc(p.x,p.y,Math.max(1, p.life*6),0,Math.PI*2);
     ctx.fill();
   });
 
-  ctx.restore();  // Fine shake
-
-  score=Math.max(0,score);
-  highScore=Math.max(highScore,score);
-  scoreEl.textContent="Score: "+score;
-  highEl.textContent="High: "+highScore;
-  timerEl.textContent="Time: "+Math.ceil(timeLeft);
+  ctx.restore();
 }
 
 /* ================= GAME OVER ================= */
@@ -453,30 +493,26 @@ function endGame(){
   gameOver=true;
   sounds.bg.pause();
   sounds.gameOver.play().catch(()=>{});
-  localStorage.setItem("sammyHigh",highScore);
+  localStorage.setItem("sammyHigh", Math.floor(highScore));
   document.getElementById("gameOverScreen").style.display="flex";
 }
 function restartGame(){location.reload()}
 
 /* ================= LOOP ================= */
-let lastTimerTime = performance.now();
 const scoreEl=document.getElementById("score");
 const highEl=document.getElementById("high");
-const timerEl=document.getElementById("timer");
 
 function loop(t){
   const dt=Math.min((t-lastTime)/1000,0.05);
   lastTime=t;
-
-  // Update timer con dt
-  timeLeft -= dt;
-  if(timeLeft<=0) endGame();
-
   update(dt);
   draw();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
+
+// Inizia musica
+sounds.bg.play().catch(()=>{});
 </script>
 </body>
 </html>
