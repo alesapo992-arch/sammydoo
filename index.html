@@ -157,6 +157,11 @@ button:hover{transform:scale(1.05);}
       <img src="stick.png" width="26" height="26" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjYiIGhlaWdodD0iMjYiIHZpZXdCb3g9IjAgMCAyNiAyNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMCAxM2gxMHYxMEgxMHYtMTBIMHoiIGZpbGw9IiM4YjQ1MTMiLz48L3N2Zz4='">
       <span id="stickCount">0</span>/5
     </div>
+
+    <div id="ballUI" class="itemUI">
+      <img src="ball.png" width="26" height="26" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjYiIGhlaWdodD0iMjYiIHZpZXdCb3g9IjAgMCAyNiAyNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMyIgY3k9IjEzIiByPSIxMyIgZmlsbD0iI2ZmMDAwMCIvPjwvc3ZnPg=='">
+      <span id="ballCount">0</span>/5
+    </div>
     
     <div id="health" class="badge">
       ❤️
@@ -221,7 +226,7 @@ logDebug('Canvas & ctx OK');
 
 const PW = 80, PH = 80;
 
-/* ================= GAME STATE (PRIMA di resize!) ================= */
+/* ================= GAME STATE ================= */
 let score = 0;
 let highScore = +localStorage.getItem("sammyHigh") || 0;
 let health = 100;
@@ -231,7 +236,8 @@ let shake = 0;
 let combo = 0;
 let frisbeeCount = 0;
 let stickCount = 0;
-let px = 0, py = 0; // Inizializzati qui
+let ballCount = 0;
+let px = 0, py = 0;
 let vy = 0, jumping = false, facingRight = true;
 let coyoteTime = 0.12;
 let jumpBuffer = 0;
@@ -257,7 +263,7 @@ const DOG_DAMAGE = 35;
 
 logDebug('Game state init OK');
 
-/* ================= RESIZE (ORA sicuro) ================= */
+/* ================= RESIZE ================= */
 function resize(){
   canvas.width = Math.min(innerWidth, 800);
   canvas.height = canvas.width * 0.75;
@@ -438,6 +444,15 @@ function update(dt) {
           spawnParticles(px, py + 20, "#44ffaa", 25, 0.8);
           sounds.bonus.play().catch(() => {});
         }
+      } else if (o.t.id === 'ball') {
+        ballCount++;
+        if (ballCount >= MAX_COLLECT) {
+          health = Math.min(MAX_HEALTH, health + COLL_BONUS);
+          collectedBonus = true;
+          ballCount = 0;
+          spawnParticles(px, py + 20, "#ff4444", 25, 0.8);
+          sounds.bonus.play().catch(() => {});
+        }
       } else if (o.t.special === 'health') {
         health = Math.min(MAX_HEALTH, health + BONE_HEALTH);
         spawnParticles(o.x, o.y, "#00ff88", 20, 0.7);
@@ -502,8 +517,8 @@ function update(dt) {
       dogSpawnTimer = 0;
     }
 
-    if ((dog.dir === 'left' && dog.x > canvas.width + 120) ||
-        (dog.dir === 'right' && dog.x < -120)) {
+    if ((dog?.dir === 'left' && dog.x > canvas.width + 120) ||
+        (dog?.dir === 'right' && dog.x < -120)) {
       dog = null;
     }
   }
@@ -529,6 +544,7 @@ function update(dt) {
   document.getElementById('high').textContent = "High: " + Math.floor(highScore);
   document.getElementById('frisCount').textContent = frisbeeCount;
   document.getElementById('stickCount').textContent = stickCount;
+  document.getElementById('ballCount').textContent = ballCount;
   document.getElementById('healthBar').style.width = (health / 100 * 100) + "%";
 }
 
@@ -576,7 +592,7 @@ function draw() {
   if (dog && IMG.dog[0].complete) {
     const f = Math.floor(dogAnim) % 2;
     ctx.save();
-    if (dog.dir === 'right') {
+    if (dog?.dir === 'right') {
       ctx.translate(dog.x + dog.w / 2, dog.y + dog.h / 2);
       ctx.scale(-1, 1);
       ctx.drawImage(IMG.dog[f], -dog.w / 2, -dog.h / 2, dog.w, dog.h);
