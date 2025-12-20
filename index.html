@@ -124,6 +124,18 @@ button:hover{transform:scale(1.05);}
   100%{opacity:1; transform:translate(-50%, -50%) scale(1);}
 }
 
+/* Debug overlay */
+#debug{
+  position:absolute;
+  top:10px;
+  left:10px;
+  background:rgba(0,0,0,0.8);
+  padding:10px;
+  border-radius:8px;
+  font-size:12px;
+  z-index:11;
+  display:none;
+}
 </style>
 </head>
 
@@ -165,6 +177,19 @@ button:hover{transform:scale(1.05);}
     <h2>GAME OVER</h2>
     <button onclick="restartGame()">RESTART 🐕</button>
   </div>
+
+  <!-- Debug (rimuovi dopo test) -->
+  <div id="debug"></div>
+</div>
+
+<script>
+/* ================= DEBUG ================= */
+const debugEl = document.getElementById('debug');
+function logDebug(msg){
+  debugEl.innerHTML += msg + '<br>';
+  debugEl.style.display = 'block';
+  console.log(msg);
+}
 
 /* ================= AUDIO ================= */
 const sounds = {
@@ -308,7 +333,7 @@ canvas.addEventListener("touchend", e => {
   }
 }, {passive: false});
 
-  document.addEventListener("keydown", e => {
+document.addEventListener("keydown", e => {
   if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") { left = true; facingRight = false; }
   if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") { right = true; facingRight = true; }
   if ((e.key === "ArrowUp" || e.key === "w" || e.key === "W") && !jumping) { jumpBuffer = 0.15; coyoteTime = 0.12; }
