@@ -28,7 +28,6 @@ canvas{
   background:#87CEEB;
   touch-action:none;
   user-select:none;
-  border:2px solid #fff; /* Debug: bordo visibile */
   display:block;
 }
 
@@ -103,7 +102,7 @@ button{
   box-shadow:0 4px 12px rgba(77,255,77,0.4);
   transition:transform 0.1s;
 }
-button:hover{transform:scale(1.05);}
+button:hover, button:active{transform:scale(1.05);}
 
 #warning{
   position:absolute;
@@ -124,17 +123,41 @@ button:hover{transform:scale(1.05);}
   100%{opacity:1; transform:translate(-50%, -50%) scale(1);}
 }
 
-/* Debug overlay */
-#debug{
+/* Touch controls per mobile */
+#touchControls{
   position:absolute;
-  top:10px;
-  left:10px;
-  background:rgba(0,0,0,0.8);
-  padding:10px;
-  border-radius:8px;
-  font-size:12px;
-  z-index:11;
-  display:none;
+  bottom:10px;
+  left:50%;
+  transform:translateX(-50%);
+  display:flex;
+  gap:10px;
+  z-index:5;
+  opacity:0.9;
+}
+.touchBtn{
+  width:60px;
+  height:60px;
+  border-radius:50%;
+  background:rgba(255,255,255,0.2);
+  border:3px solid rgba(255,255,255,0.5);
+  color:#fff;
+  font-size:24px;
+  font-weight:bold;
+  backdrop-filter:blur(10px);
+  touch-action:manipulation;
+  transition:all 0.1s;
+  user-select:none;
+}
+.touchBtn:active{
+  background:rgba(255,255,255,0.4);
+  transform:scale(0.95);
+}
+#leftBtn::before{content:"◀";}
+#rightBtn::before{content:"▶";}
+#jumpBtn::before{content:"⬆";}
+
+@media (hover: hover) {
+  #touchControls{display:none;}
 }
 </style>
 </head>
@@ -173,24 +196,20 @@ button:hover{transform:scale(1.05);}
     <div id="high" class="badge">High: 0</div>
   </div>
 
+  <!-- Touch Controls Mobile -->
+  <div id="touchControls">
+    <div id="leftBtn" class="touchBtn"></div>
+    <div id="jumpBtn" class="touchBtn"></div>
+    <div id="rightBtn" class="touchBtn"></div>
+  </div>
+
   <div id="gameOverScreen">
     <h2>GAME OVER</h2>
     <button onclick="restartGame()">RESTART 🐕</button>
   </div>
-
-  <!-- Debug (rimuovi dopo test) -->
-  <div id="debug"></div>
 </div>
 
 <script>
-/* ================= DEBUG ================= */
-const debugEl = document.getElementById('debug');
-function logDebug(msg){
-  debugEl.innerHTML += msg + '<br>';
-  debugEl.style.display = 'block';
-  console.log(msg);
-}
-
 /* ================= AUDIO ================= */
 const sounds = {
   bg: new Audio("bg_music.mp3"),
@@ -222,7 +241,6 @@ function unlockAudio(){
 /* ================= CANVAS ================= */
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
-logDebug('Canvas & ctx OK');
 
 const PW = 80, PH = 80;
 
@@ -260,8 +278,7 @@ const MAX_COLLECT = 5;
 const MAX_HEALTH = 100;
 const DOG_SPAWN_INTERVAL = 22;
 const DOG_DAMAGE = 35;
-
-logDebug('Game state init OK');
+const MOVE_SPEED = 600;  // Velocità aumentata per fluidità
 
 /* ================= RESIZE ================= */
 function resize(){
@@ -269,7 +286,6 @@ function resize(){
   canvas.height = canvas.width * 0.75;
   px = canvas.width / 2;
   py = canvas.height - PH;
-  logDebug(`Resize: ${canvas.width}x${canvas.height}, px=${px}`);
 }
 resize();
 window.addEventListener("resize", resize);
@@ -278,7 +294,6 @@ window.addEventListener("resize", resize);
 function img(s){
   const i = new Image();
   i.src = s;
-  i.onerror = () => logDebug(`Image load fail: ${s}`);
   return i;
 }
 const IMG = {
@@ -287,7 +302,6 @@ const IMG = {
   jump: img("sam_jump.png"),
   dog: [img("dog1.png"), img("dog2.png")]
 };
-logDebug('Images queued OK');
 
 /* ================= OBJECTS ================= */
 const ITEM_SCALE = 0.75;
@@ -300,11 +314,10 @@ const OBJECTS = [
   {img: img("caffettiera.png"), id: 'coffee', pts: -15, size: 55, speed: 190 * SPEED_SCALE, chance: 0.15, isPositive: false},
   {img: img("secchio.png"), id: 'bucket', pts: -10, size: 55, speed: 190 * SPEED_SCALE, chance: 0.2, isPositive: false}
 ];
-logDebug('Objects OK');
 
 /* ================= INPUT ================= */
 let touchSX = 0, touchSY = 0;
-const SWIPE_THRESHOLD = 35;
+const SWIPE_THRESHOLD = 25;  // Ridotto per sensibilità maggiore
 
 canvas.addEventListener("touchstart", e => {
   e.preventDefault();
@@ -326,13 +339,14 @@ canvas.addEventListener("touchend", e => {
 
   if (dx < -SWIPE_THRESHOLD) {
     left = true; facingRight = false;
-    setTimeout(() => left = false, 140);
+    setTimeout(() => left = false, 100);  // Più breve per responsività
   } else if (dx > SWIPE_THRESHOLD) {
     right = true; facingRight = true;
-    setTimeout(() => right = false, 140);
+    setTimeout(() => right = false, 100);
   }
 }, {passive: false});
 
+// Keyboard
 document.addEventListener("keydown", e => {
   if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") { left = true; facingRight = false; }
   if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") { right = true; facingRight = true; }
@@ -342,6 +356,19 @@ document.addEventListener("keyup", e => {
   if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") left = false;
   if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") right = false;
 });
+
+// Touch Buttons Mobile
+const leftBtn = document.getElementById("leftBtn");
+const rightBtn = document.getElementById("rightBtn");
+const jumpBtn = document.getElementById("jumpBtn");
+
+leftBtn.addEventListener("touchstart", e => { e.preventDefault(); left = true; facingRight = false; });
+leftBtn.addEventListener("touchend", e => { e.preventDefault(); left = false; });
+
+rightBtn.addEventListener("touchstart", e => { e.preventDefault(); right = true; facingRight = true; });
+rightBtn.addEventListener("touchend", e => { e.preventDefault(); right = false; });
+
+jumpBtn.addEventListener("touchstart", e => { e.preventDefault(); jumpBuffer = 0.15; if (!jumping) coyoteTime = 0.12; });
 
 /* ================= FUNCTIONS ================= */
 function spawnParticles(x, y, color, count = 8, life = 0.5) {
@@ -378,9 +405,9 @@ function spawnDog() {
 function update(dt) {
   if (gameOver) return;
 
-  // Movement
-  if (left) px -= 420 * dt;
-  if (right) px += 420 * dt;
+  // Movement (più veloce)
+  if (left) px -= MOVE_SPEED * dt;
+  if (right) px += MOVE_SPEED * dt;
   px = Math.max(PW / 2, Math.min(canvas.width - PW / 2, px));
 
   // Jump
@@ -419,6 +446,14 @@ function update(dt) {
   // Items update
   items.forEach(o => {
     o.y += o.t.speed * difficultyLevel * dt;
+    
+    // Movimento ellittico solo per frisbee
+    if (o.t.id === 'frisbee') {
+      const wave = Math.sin(o.y * 0.015 + o.t.waveOffset || 0) * 80;
+      o.x += wave * dt;
+      if (!o.t.waveOffset) o.t.waveOffset = Math.random() * Math.PI * 2;
+    }
+    
     o.rotation += 4 * dt;
 
     // Collect
@@ -517,8 +552,8 @@ function update(dt) {
       dogSpawnTimer = 0;
     }
 
-    if ((dog?.dir === 'left' && dog.x > canvas.width + 120) ||
-        (dog?.dir === 'right' && dog.x < -120)) {
+    if ((dog.dir === 'left' && dog.x > canvas.width + 120) ||
+        (dog.dir === 'right' && dog.x < -120)) {
       dog = null;
     }
   }
@@ -541,6 +576,7 @@ function update(dt) {
 
   // UI
   document.getElementById('score').textContent = "Score: " + Math.floor(score);
+  highScore = Math.max(highScore, score);
   document.getElementById('high').textContent = "High: " + Math.floor(highScore);
   document.getElementById('frisCount').textContent = frisbeeCount;
   document.getElementById('stickCount').textContent = stickCount;
@@ -557,7 +593,7 @@ function draw() {
   }
 
   ctx.imageSmoothingEnabled = false;
-  ctx.fillStyle = '#87CEEB'; // Background fallback
+  ctx.fillStyle = '#87CEEB';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   if (IMG.bg.complete) ctx.drawImage(IMG.bg, 0, 0, canvas.width, canvas.height);
 
@@ -565,7 +601,7 @@ function draw() {
   let pImg = jumping
     ? IMG.jump
     : (left || right ? IMG.run[Math.floor(performance.now() / 140) % 2] : IMG.run[0]);
-  if (pImg.complete || pImg === IMG.jump) { // Skip if not loaded
+  if (pImg.complete) {
     ctx.save();
     if (!facingRight) {
       ctx.translate(px, py + PH / 2);
@@ -592,7 +628,7 @@ function draw() {
   if (dog && IMG.dog[0].complete) {
     const f = Math.floor(dogAnim) % 2;
     ctx.save();
-    if (dog?.dir === 'right') {
+    if (dog.dir === 'right') {
       ctx.translate(dog.x + dog.w / 2, dog.y + dog.h / 2);
       ctx.scale(-1, 1);
       ctx.drawImage(IMG.dog[f], -dog.w / 2, -dog.h / 2, dog.w, dog.h);
@@ -624,7 +660,6 @@ function endGame() {
   gameOver = true;
   sounds.bg.pause();
   sounds.gameOver.play().catch(() => {});
-  highScore = Math.max(highScore, score);
   localStorage.setItem("sammyHigh", Math.floor(highScore));
   document.getElementById("gameOverScreen").style.display = "flex";
 }
@@ -640,7 +675,6 @@ function loop(t) {
   draw();
   requestAnimationFrame(loop);
 }
-logDebug('Loop started');
 requestAnimationFrame(loop);
 
 // BG music
