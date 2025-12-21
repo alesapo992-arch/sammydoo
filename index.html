@@ -259,7 +259,7 @@ let px = 0, py = 0;
 let vy = 0, jumping = false, facingRight = true;
 let coyoteTime = 0.12;
 let jumpBuffer = 0;
-let left = false, right = false;
+let vx = 0;  // Nuova: velocità orizzontale per momentum
 let items = [];
 let particles = [];
 let dog = null;
@@ -269,7 +269,11 @@ let spawnRate = 1.1;
 let difficultyLevel = 1;
 
 const GRAVITY = 2600;
-const JUMP = -850;
+const BASE_JUMP = -850;
+const MAX_JUMP = -1200;  // Max per swipe forte
+const ACCEL = 1800;  // Accelerazione orizzontale
+const FRICTION = 1200;  // Attrito
+const MAX_VX = 600;  // Max velocità orizzontale
 const MISS_DAMAGE = 15;
 const NEGATIVE_DAMAGE = 10;
 const BONE_HEALTH = 25;
@@ -278,7 +282,11 @@ const MAX_COLLECT = 5;
 const MAX_HEALTH = 100;
 const DOG_SPAWN_INTERVAL = 22;
 const DOG_DAMAGE = 35;
-const MOVE_SPEED = 600;  // Velocità aumentata per fluidità
+
+let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
+let lastTouchX = 0, lastTouchY = 0;
+let isTouching = false;
+let touchId = null;  // Per tracciare touch singolo
 
 /* ================= RESIZE ================= */
 function resize(){
@@ -316,40 +324,10 @@ const OBJECTS = [
 ];
 
 /* ================= INPUT ================= */
-let touchSX = 0, touchSY = 0;
-const SWIPE_THRESHOLD = 25;  // Ridotto per sensibilità maggiore
-
-canvas.addEventListener("touchstart", e => {
-  e.preventDefault();
-  const t = e.touches[0];
-  touchSX = t.clientX; touchSY = t.clientY;
-}, {passive: false});
-
-canvas.addEventListener("touchend", e => {
-  e.preventDefault();
-  const t = e.changedTouches[0];
-  const dx = t.clientX - touchSX;
-  const dy = t.clientY - touchSY;
-
-  if (dy < -SWIPE_THRESHOLD && Math.abs(dy) > Math.abs(dx)) {
-    jumpBuffer = 0.15;
-    if (!jumping) coyoteTime = 0.12;
-    return;
-  }
-
-  if (dx < -SWIPE_THRESHOLD) {
-    left = true; facingRight = false;
-    setTimeout(() => left = false, 100);  // Più breve per responsività
-  } else if (dx > SWIPE_THRESHOLD) {
-    right = true; facingRight = true;
-    setTimeout(() => right = false, 100);
-  }
-}, {passive: false});
-
 // Keyboard
 document.addEventListener("keydown", e => {
-  if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") { left = true; facingRight = false; }
-  if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") { right = true; facingRight = true; }
+  if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") { left = true; }
+  if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") { right = true; }
   if ((e.key === "ArrowUp" || e.key === "w" || e.key === "W") && !jumping) { jumpBuffer = 0.15; coyoteTime = 0.12; }
 });
 document.addEventListener("keyup", e => {
@@ -357,18 +335,77 @@ document.addEventListener("keyup", e => {
   if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") right = false;
 });
 
-// Touch Buttons Mobile
+// Touch Buttons Mobile as fallback
 const leftBtn = document.getElementById("leftBtn");
 const rightBtn = document.getElementById("rightBtn");
 const jumpBtn = document.getElementById("jumpBtn");
 
-leftBtn.addEventListener("touchstart", e => { e.preventDefault(); left = true; facingRight = false; });
+leftBtn.addEventListener("touchstart", e => { e.preventDefault(); left = true; });
 leftBtn.addEventListener("touchend", e => { e.preventDefault(); left = false; });
 
-rightBtn.addEventListener("touchstart", e => { e.preventDefault(); right = true; facingRight = true; });
+rightBtn.addEventListener("touchstart", e => { e.preventDefault(); right = true; });
 rightBtn.addEventListener("touchend", e => { e.preventDefault(); right = false; });
 
 jumpBtn.addEventListener("touchstart", e => { e.preventDefault(); jumpBuffer = 0.15; if (!jumping) coyoteTime = 0.12; });
+
+// Advanced Touch on Canvas
+canvas.addEventListener("touchstart", e => {
+  e.preventDefault();
+  if (isTouching) return;  // Ignora multi-touch
+  const touch = e.touches[0];
+  touchId = touch.identifier;
+  touchStartX = lastTouchX = touch.clientX;
+  touchStartY = lastTouchY = touch.clientY;
+  touchStartTime = performance.now();
+  isTouching = true;
+}, {passive: false});
+
+canvas.addEventListener("touchmove", e => {
+  e.preventDefault();
+  if (!isTouching) return;
+  const touch = Array.from(e.touches).find(t => t.identifier === touchId);
+  if (!touch) return;
+  const dx = touch.clientX - lastTouchX;
+  const dy = touch.clientY - lastTouchY;
+  vx += dx * 2;  // Accelera vx con drag
+  vx = Math.max(-MAX_VX, Math.min(MAX_VX, vx));  // Clamp
+  lastTouchX = touch.clientX;
+  lastTouchY = touch.clientY;
+}, {passive: false});
+
+canvas.addEventListener("touchend", e => {
+  e.preventDefault();
+  if (!isTouching) return;
+  const touch = Array.from(e.changedTouches).find(t => t.identifier === touchId);
+  if (!touch) return;
+  const dy = touch.clientY - touchStartY;
+  const duration = (performance.now() - touchStartTime) / 1000;
+  if (duration < 0.15 && Math.abs(dy) < 20) {
+    // Tap rapido: salto default
+    if (!jumping) {
+      vy = BASE_JUMP;
+      jumping = true;
+      sounds.jump.play().catch(() => {});
+    }
+  } else if (dy < -30) {
+    // Swipe up: salto variabile
+    const swipeSpeed = Math.abs(dy) / duration;
+    const jumpForce = Math.min(MAX_JUMP, BASE_JUMP - swipeSpeed * 100);  // Più negativo = salto più alto
+    if (!jumping) {
+      vy = jumpForce;
+      jumping = true;
+      sounds.jump.play().catch(() => {});
+    }
+  }
+  // Momentum già in vx da touchmove
+  isTouching = false;
+  touchId = null;
+}, {passive: false});
+
+canvas.addEventListener("touchcancel", e => {
+  isTouching = false;
+  touchId = null;
+}, {passive: false});
 
 /* ================= FUNCTIONS ================= */
 function spawnParticles(x, y, color, count = 8, life = 0.5) {
@@ -405,16 +442,29 @@ function spawnDog() {
 function update(dt) {
   if (gameOver) return;
 
-  // Movement (più veloce)
-  if (left) px -= MOVE_SPEED * dt;
-  if (right) px += MOVE_SPEED * dt;
+  // Movimento orizzontale con fisica
+  if (left) vx -= ACCEL * dt;
+  if (right) vx += ACCEL * dt;
+  vx = Math.max(-MAX_VX, Math.min(MAX_VX, vx));
+
+  // Attrito
+  if (!left && !right && !isTouching) {
+    if (Math.abs(vx) > 0) {
+      const frictionDir = vx > 0 ? -1 : 1;
+      vx += frictionDir * FRICTION * dt;
+      if (Math.abs(vx) < 10) vx = 0;  // Stop piccolo
+    }
+  }
+
+  px += vx * dt;
   px = Math.max(PW / 2, Math.min(canvas.width - PW / 2, px));
+  facingRight = vx >= 0;
 
   // Jump
   if (!jumping) coyoteTime -= dt;
   jumpBuffer = Math.max(0, jumpBuffer - dt);
   if (jumpBuffer > 0 && coyoteTime > 0 && !jumping) {
-    jumping = true; vy = JUMP;
+    jumping = true; vy = BASE_JUMP;
     jumpBuffer = 0; coyoteTime = 0;
     sounds.jump.play().catch(() => {});
     combo = 0;
@@ -449,9 +499,9 @@ function update(dt) {
     
     // Movimento ellittico solo per frisbee
     if (o.t.id === 'frisbee') {
-      const wave = Math.sin(o.y * 0.015 + o.t.waveOffset || 0) * 80;
+      const wave = Math.sin(o.y * 0.015 + (o.waveOffset || 0)) * 80;
       o.x += wave * dt;
-      if (!o.t.waveOffset) o.t.waveOffset = Math.random() * Math.PI * 2;
+      if (!o.waveOffset) o.waveOffset = Math.random() * Math.PI * 2;
     }
     
     o.rotation += 4 * dt;
@@ -588,7 +638,7 @@ function update(dt) {
 function draw() {
   ctx.save();
   if (shake > 0) {
-    const s = (Math.sin(Date.now() / 50) * shake * 12);
+    const s = (Math.sin(performance.now() / 50) * shake * 12);
     ctx.translate(s, s * 0.7);
   }
 
@@ -600,7 +650,7 @@ function draw() {
   // Player
   let pImg = jumping
     ? IMG.jump
-    : (left || right ? IMG.run[Math.floor(performance.now() / 140) % 2] : IMG.run[0]);
+    : (Math.abs(vx) > 10 ? IMG.run[Math.floor(performance.now() / 140) % 2] : IMG.run[0]);
   if (pImg.complete) {
     ctx.save();
     if (!facingRight) {
