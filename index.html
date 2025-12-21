@@ -287,6 +287,7 @@ let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
 let lastTouchX = 0, lastTouchY = 0;
 let isTouching = false;
 let touchId = null;  // Per tracciare touch singolo
+let left = false, right = false;  // Riaggiunti per compatibilità tastiera e bottoni
 
 /* ================= RESIZE ================= */
 function resize(){
@@ -326,8 +327,8 @@ const OBJECTS = [
 /* ================= INPUT ================= */
 // Keyboard
 document.addEventListener("keydown", e => {
-  if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") { left = true; }
-  if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") { right = true; }
+  if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") { left = true; facingRight = false; }
+  if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") { right = true; facingRight = true; }
   if ((e.key === "ArrowUp" || e.key === "w" || e.key === "W") && !jumping) { jumpBuffer = 0.15; coyoteTime = 0.12; }
 });
 document.addEventListener("keyup", e => {
@@ -340,10 +341,10 @@ const leftBtn = document.getElementById("leftBtn");
 const rightBtn = document.getElementById("rightBtn");
 const jumpBtn = document.getElementById("jumpBtn");
 
-leftBtn.addEventListener("touchstart", e => { e.preventDefault(); left = true; });
+leftBtn.addEventListener("touchstart", e => { e.preventDefault(); left = true; facingRight = false; });
 leftBtn.addEventListener("touchend", e => { e.preventDefault(); left = false; });
 
-rightBtn.addEventListener("touchstart", e => { e.preventDefault(); right = true; });
+rightBtn.addEventListener("touchstart", e => { e.preventDefault(); right = true; facingRight = true; });
 rightBtn.addEventListener("touchend", e => { e.preventDefault(); right = false; });
 
 jumpBtn.addEventListener("touchstart", e => { e.preventDefault(); jumpBuffer = 0.15; if (!jumping) coyoteTime = 0.12; });
@@ -366,9 +367,8 @@ canvas.addEventListener("touchmove", e => {
   const touch = Array.from(e.touches).find(t => t.identifier === touchId);
   if (!touch) return;
   const dx = touch.clientX - lastTouchX;
-  const dy = touch.clientY - lastTouchY;
-  vx += dx * 2;  // Accelera vx con drag
-  vx = Math.max(-MAX_VX, Math.min(MAX_VX, vx));  // Clamp
+  vx += dx * 3;  // Sensibilità drag aumentata per fluidità
+  vx = Math.max(-MAX_VX, Math.min(MAX_VX, vx));
   lastTouchX = touch.clientX;
   lastTouchY = touch.clientY;
 }, {passive: false});
@@ -379,25 +379,29 @@ canvas.addEventListener("touchend", e => {
   const touch = Array.from(e.changedTouches).find(t => t.identifier === touchId);
   if (!touch) return;
   const dy = touch.clientY - touchStartY;
+  const dx = touch.clientX - touchStartX;
   const duration = (performance.now() - touchStartTime) / 1000;
-  if (duration < 0.15 && Math.abs(dy) < 20) {
-    // Tap rapido: salto default
+  if (duration < 0.15 && Math.abs(dy) < 25 && Math.abs(dx) < 25) {
+    // Tap rapido: salto veloce
     if (!jumping) {
-      vy = BASE_JUMP;
+      vy = MAX_JUMP;
       jumping = true;
       sounds.jump.play().catch(() => {});
     }
-  } else if (dy < -30) {
+  } else if (dy < -25) {
     // Swipe up: salto variabile
     const swipeSpeed = Math.abs(dy) / duration;
-    const jumpForce = Math.min(MAX_JUMP, BASE_JUMP - swipeSpeed * 100);  // Più negativo = salto più alto
+    const jumpForce = BASE_JUMP - Math.min(350, swipeSpeed * 0.8);  // Calcolo fluido
     if (!jumping) {
       vy = jumpForce;
       jumping = true;
       sounds.jump.play().catch(() => {});
     }
+  } else if (Math.abs(dx) > 25) {
+    // Swipe dx/sx: boost momentum
+    vx += dx * 2;  // Extra push per swipe
+    vx = Math.max(-MAX_VX, Math.min(MAX_VX, vx));
   }
-  // Momentum già in vx da touchmove
   isTouching = false;
   touchId = null;
 }, {passive: false});
