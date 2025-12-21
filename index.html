@@ -259,6 +259,7 @@ let px = 0, py = 0;
 let vy = 0, jumping = false, facingRight = true;
 let coyoteTime = 0.12;
 let jumpBuffer = 0;
+let left = false, right = false;
 let vx = 0;  // Nuova: velocità orizzontale per momentum
 let items = [];
 let particles = [];
@@ -287,7 +288,6 @@ let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
 let lastTouchX = 0, lastTouchY = 0;
 let isTouching = false;
 let touchId = null;  // Per tracciare touch singolo
-let left = false, right = false;  // Riaggiunti per compatibilità tastiera e bottoni
 
 /* ================= RESIZE ================= */
 function resize(){
